@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgriSense — Crop & Soil Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- Topbar -->
+<header class="topbar" style="border-bottom: none; justify-content: flex-end;">
+  <div class="topbar-right">
+    <span class="pulse-live" id="live-dot"></span>
+    <span id="time-display">--:--:--</span>
+    <div class="status-badge">
+      <div class="status-dot" id="serial-dot"></div>
+      <span id="serial-label">Sensor</span>
+    </div>
+  </div>
+</header>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-section">Monitor</div>
+    <div class="nav-item active" onclick="showView('overview')">
+      <span class="nav-icon">🌿</span> Your Field
+    </div>
+    <div class="nav-item" onclick="showView('charts')">
+      <span class="nav-icon">📈</span> Sensor History
+    </div>
+    <div class="nav-item" onclick="showView('weather')">
+      <span class="nav-icon">🌦️</span> External Weather
+    </div>
+    <div class="nav-item" onclick="showView('insights')">
+      <span class="nav-icon">🧠</span> AI Insights
+    </div>
+    <div class="sidebar-section">System Tools</div>
+    <div class="nav-item" onclick="showView('reports')">
+      <span class="nav-icon">📁</span> Download Reports
+    </div>
+  </nav>
+
+  <!-- Content -->
+  <main class="content" style="position: relative;">
+  
+    <div class="loading-overlay" id="loading-overlay">
+      <div class="spinner"></div>
+      <div style="font-weight:600; color:var(--text1)">Connecting to sensors...</div>
+    </div>
+    
+    <div class="error-banner" id="error-banner">
+      <span>⚠️ Sensor Offline: Cannot reach the backend API. Showing cached data.</span>
+    </div>
+
+    <!-- ── OVERVIEW ─────────────────────────────── -->
+    <div id="view-overview" class="view active">
+      <div class="page-header" style="margin-bottom: 1rem;">
+        <div class="page-title">Your Field (Live Sensors)</div>
+        <div class="page-sub" id="last-update">Waiting for data...</div>
+      </div>
+
+      <!-- Sensor cards -->
+      <div class="card-grid" id="sensor-cards">
+        <div class="metric-card" style="--card-accent:#2b6cb0" id="card-sm">
+          <div class="metric-label">Soil Moisture</div>
+          <div class="metric-value" id="val-sm">—<span class="metric-unit">%</span></div>
+          <div class="threshold-bar-wrap">
+            <div class="threshold-bar-track">
+              <div class="threshold-bar-fill" id="bar-sm" style="width:0%;background:#2b6cb0"></div>
+            </div>
+            <div class="threshold-markers"><span id="sm-min-label">0%</span><span id="sm-opt-label">Opt: --</span><span id="sm-max-label">100%</span></div>
+          </div>
+          <div id="badge-sm" class="metric-badge badge-ok">● OPTIMAL</div>
+        </div>
+        <div class="metric-card" style="--card-accent:#e53e3e" id="card-temp">
+          <div class="metric-label">Temperature</div>
+          <div class="metric-value" id="val-temp">—<span class="metric-unit">°C</span></div>
+          <div class="threshold-bar-wrap">
+            <div class="threshold-bar-track">
+              <div class="threshold-bar-fill" id="bar-temp" style="width:0%;background:#e53e3e"></div>
+            </div>
+            <div class="threshold-markers"><span id="temp-min-label">0°</span><span id="temp-opt-label">Opt: --</span><span id="temp-max-label">50°</span></div>
+          </div>
+          <div id="badge-temp" class="metric-badge badge-ok">● NORMAL</div>
+        </div>
+        <div class="metric-card" style="--card-accent:#3182ce" id="card-hum">
+          <div class="metric-label">Ambient Humidity</div>
+          <div class="metric-value" id="val-hum">—<span class="metric-unit">%</span></div>
+          <div class="threshold-bar-wrap">
+            <div class="threshold-bar-track">
+              <div class="threshold-bar-fill" id="bar-hum" style="width:0%;background:#3182ce"></div>
+            </div>
+            <div class="threshold-markers"><span id="hum-min-label">0%</span><span id="hum-opt-label">Opt: --</span><span id="hum-max-label">100%</span></div>
+          </div>
+          <div id="badge-hum" class="metric-badge badge-ok">● NORMAL</div>
+        </div>
+      </div>
+
+      <!-- Mini Charts -->
+      <div class="chart-grid">
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title">Soil Moisture</div>
+            <div class="chart-meta" id="mini-sm-val">—</div>
+          </div>
+          <div class="chart-wrap"><canvas id="mini-sm" role="img" aria-label="Soil moisture over time"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title">Temperature</div>
+            <div class="chart-meta" id="mini-temp-val">—</div>
+          </div>
+          <div class="chart-wrap"><canvas id="mini-temp" role="img" aria-label="Temperature over time"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title">Humidity</div>
+            <div class="chart-meta" id="mini-hum-val">—</div>
+          </div>
+          <div class="chart-wrap"><canvas id="mini-hum" role="img" aria-label="Humidity over time"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Quick Insights -->
+      <div class="page-header"><div class="page-title" style="font-size:16px">Quick Insights</div></div>
+      <div class="insights-list" id="quick-insights"></div>
+    </div>
+
+    <!-- ── CHARTS ──────────────────────────────── -->
+    <div id="view-charts" class="view">
+      <div class="page-header">
+        <div class="page-title">Time-Series Charts</div>
+        <div class="page-sub">All sensor data over selected time range</div>
+      </div>
+      <div class="range-pills">
+        <div class="pill active" onclick="setRange(1, this)">Last 1h</div>
+        <div class="pill" onclick="setRange(6, this)">Last 6h</div>
+        <div class="pill" onclick="setRange(24, this)">Last 24h</div>
+        <div class="pill" onclick="setRange(168, this)">Last 7d</div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:1.25rem;">
+        <div class="chart-card">
+          <div class="chart-header"><div class="chart-title">💧 Soil Moisture (%)</div></div>
+          <div class="chart-wrap" style="height:220px"><canvas id="chart-sm" role="img" aria-label="Full soil moisture chart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-header"><div class="chart-title">🌡️ Temperature (°C)</div></div>
+          <div class="chart-wrap" style="height:220px"><canvas id="chart-temp" role="img" aria-label="Full temperature chart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-header"><div class="chart-title">💦 Humidity (%)</div></div>
+          <div class="chart-wrap" style="height:220px"><canvas id="chart-hum" role="img" aria-label="Full humidity chart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── WEATHER ─────────────────────────────── -->
+    <div id="view-weather" class="view">
+      <div class="page-header">
+        <div class="page-title">Weather Conditions</div>
+        <div class="page-sub" id="weather-fetched">Loading...</div>
+      </div>
+      <div id="severe-alert-container"></div>
+      <div class="w-row">
+        <!-- Main Column -->
+        <div class="w-col-main">
+          <div class="w-card main-weather">
+            <div class="w-card-title">📍 Current Weather <span id="w-city" style="color:#f8fafc; font-weight:800; margin-left:auto;">—</span></div>
+            <div class="w-curr-top">
+              <div style="display:flex; flex-direction:column;">
+                <div class="w-curr-temp"><span id="w-temp">—</span><span class="w-curr-unit">°C</span></div>
+                <div class="w-curr-feels">RealFeel® <span id="w-feels">—</span>°C</div>
+              </div>
+              <div style="display:flex; flex-direction:column; align-items:flex-end; text-align:right;">
+                <div class="w-curr-icon" id="w-icon">☀️</div>
+                <div class="w-curr-desc" id="w-desc">—</div>
+              </div>
+            </div>
+            <div class="w-details-grid">
+              <div class="w-detail-item"><span class="w-detail-label">Wind</span><span class="w-detail-val" id="w-wind">—</span></div>
+              <div class="w-detail-item"><span class="w-detail-label">Humidity</span><span class="w-detail-val" id="w-hum">—</span></div>
+              <div class="w-detail-item"><span class="w-detail-label">Pressure</span><span class="w-detail-val" id="w-press">—</span></div>
+              <div class="w-detail-item"><span class="w-detail-label">Cloud Cover</span><span class="w-detail-val" id="w-cloud">—</span></div>
+              <div class="w-detail-item"><span class="w-detail-label">UV Index</span><span class="w-detail-val" id="w-uv">—</span></div>
+              <div class="w-detail-item">
+                <span class="w-detail-label">Air Quality (AQI)</span>
+                <div><span class="aqi-badge" id="w-aqi-badge">—</span></div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="w-card">
+            <div class="w-card-title">🕒 Hourly Forecast (Next 24h)</div>
+            <div class="w-hourly-scroll" id="hourly-scroll">
+              <!-- populated by JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Side Column -->
+        <div class="w-col-side">
+          <div class="w-card">
+            <div class="w-card-title">📅 7-Day Forecast</div>
+            <div class="w-daily-list" id="daily-list">
+              <!-- populated by JS -->
+            </div>
+          </div>
+          
+          <div class="w-card">
+            <div class="w-card-title">🌞 Sun & Moon</div>
+            <div class="w-sun-grid">
+              <div class="w-sun-item">
+                <div class="w-sun-icon">🌅</div>
+                <div class="w-sun-time" id="w-sunrise">—</div>
+                <div class="w-sun-label">Sunrise</div>
+              </div>
+              <div class="w-sun-item">
+                <div class="w-sun-icon">🌇</div>
+                <div class="w-sun-time" id="w-sunset">—</div>
+                <div class="w-sun-label">Sunset</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── INSIGHTS ────────────────────────────── -->
+    <div id="view-insights" class="view">
+      <div class="page-header">
+        <div class="page-title">Crop & Soil Insights</div>
+        <div class="page-sub">Rule-based recommendations for your field</div>
+      </div>
+      <div id="fusion-loader" style="display:none; text-align:center; padding:3rem 0;">
+        <div class="spinner" style="margin:0 auto 1.5rem;"></div>
+        <div style="font-weight:600; color:var(--green); font-size:16px;">AI Fusion in progress...</div>
+        <div style="font-size:12px; color:var(--text2); margin-top:0.5rem;">Synchronizing sensor data with local weather patterns</div>
+      </div>
+      <div class="insights-list" id="full-insights" style="transition: opacity 0.3s ease;"></div>
+
+
+    </div>
+
+    <!-- ── REPORTS ─────────────────────────────── -->
+    <div id="view-reports" class="view">
+      <div class="page-header">
+        <div class="page-title">Report Generation</div>
+        <div class="page-sub">Download sensor and weather reports</div>
+      </div>
+      <div class="form-group" style="max-width:300px; margin-bottom:1.5rem">
+        <label class="form-label">Time Range for Report</label>
+        <select class="form-input" id="report-hours">
+          <option value="1">Last 1 Hour</option>
+          <option value="6">Last 6 Hours</option>
+          <option value="24" selected>Last 24 Hours</option>
+          <option value="168">Last 7 Days</option>
+        </select>
+      </div>
+      <div class="report-card">
+        <div class="report-title">📊 CSV Data Export</div>
+        <div class="report-desc">Downloads all timestamped sensor readings (soil moisture, temperature, humidity) in CSV format.</div>
+        <button class="btn-primary" onclick="downloadCSV()">Download CSV</button>
+      </div>
+      <div class="report-card">
+        <div class="report-title">📄 PDF Report</div>
+        <div class="report-desc">Generates a comprehensive PDF report including sensor data, weather summary, and insights.</div>
+        <button class="btn-primary" onclick="downloadPDF()">Generate PDF</button>
+      </div>
+      <div class="report-card">
+        <div class="report-title">📋 Quick Summary (CSV — Client-side)</div>
+        <div class="report-desc">Instant export of current session data without requiring server. Includes current readings + insights.</div>
+        <button class="btn-outline" onclick="quickExportCSV()">Quick Export</button>
+      </div>
+    </div>
+
+
+  </main>
+</div>
+
+<!-- Alert Container -->
+<div class="alert-bar" id="alert-bar"></div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

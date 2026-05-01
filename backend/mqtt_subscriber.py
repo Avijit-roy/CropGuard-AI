@@ -1,0 +1,341 @@
+# ============================================================
+# FILE: backend/mqtt_subscriber.py
+# PURPOSE: Subscribes to MQTT broker, receives sensor data,
+#          and stores all readings in SQLite for the dashboard
+# ============================================================
+
+import json
+import sqlite3
+import logging
+import logging.handlers
+import time
+import threading
+import paho.mqtt.client as mqtt
+from datetime import datetime, timezone
+
+MQTT_BROKER = "broker.hivemq.com"
+MQTT_PORT   = 1883
+MQTT_TOPIC  = "plant/soil/#"
+
+DB_PATH = "soil_data.db"
+
+# ── Data Retention Config ──────────────────────────────────────
+DATA_RETENTION_DAYS   = 7        # Keep only the last 7 days
+CLEANUP_INTERVAL_SECS = 6 * 3600 # Run cleanup every 6 hours
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.handlers.RotatingFileHandler(
+            "subscriber.log", maxBytes=5*1024*1024, backupCount=3  # 5 MB per file, keep 3 backups
+        ),
+        logging.StreamHandler(),
+    ]
+)
+log = logging.getLogger(__name__)
+
+# ============================================================
+# DATABASE SETUP
+# ============================================================
+
+def init_database():
+    conn = sqlite3.connect(DB_PATH)
+    cur  = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS soil_readings (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id        TEXT    NOT NULL,
+            timestamp        TEXT    NOT NULL,
+            temperature      REAL,
+            humidity         REAL,
+            soil_moisture    REAL,        -- HL-69 probe (replaces moisture_pct)
+            soil_dry         INTEGER,     -- 1 if soil too dry
+            soil_wet         INTEGER,     -- 1 if soil waterlogged (replaces surface_wet)
+            air_quality_pct  REAL,
+            high_ammonia     INTEGER,
+            pressure_hpa     REAL,
+            altitude_m       REAL,
+            risk_score       INTEGER,
+            created_at       TEXT    DEFAULT (datetime('now'))
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS disease_predictions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id   TEXT,
+            disease     TEXT    NOT NULL,
+            crop        TEXT,
+            confidence  REAL,
+            severity    TEXT,
+            timestamp   TEXT    DEFAULT (datetime('now')),
+            image_path  TEXT
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS recommendations (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id       TEXT,
+            disease         TEXT,
+            soil_score      INTEGER,
+            alert_level     TEXT,
+            recommendation  TEXT,
+            soil_fix        TEXT,
+            timestamp       TEXT    DEFAULT (datetime('now'))
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+    log.info(f"Database initialized: {DB_PATH}")
+
+# ============================================================
+# DATA RETENTION — auto-purge records older than 7 days
+# ============================================================
+
+db_lock = threading.Lock()
+
+def purge_old_data():
+    """Delete rows older than DATA_RETENTION_DAYS from every table."""
+    cutoff = f"-{DATA_RETENTION_DAYS} days"
+    with db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            tables_and_cols = [
+                ("soil_readings",       "created_at"),
+                ("disease_predictions", "timestamp"),
+                ("recommendations",     "timestamp"),
+            ]
+            total_deleted = 0
+            for table, col in tables_and_cols:
+                cur = conn.execute(
+                    f"DELETE FROM {table} WHERE {col} < datetime('now', ?)",
+                    (cutoff,),
+                )
+                total_deleted += cur.rowcount
+                log.info(f"Purged {cur.rowcount} old rows from {table}")
+
+            conn.commit()
+            conn.close()
+            
+            # VACUUM cannot be run inside a transaction
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("VACUUM")
+            conn.close()
+            
+            log.info(
+                f"Data retention cleanup done — "
+                f"{total_deleted} total rows removed (keeping last {DATA_RETENTION_DAYS} days)"
+            )
+        except sqlite3.Error as e:
+            log.error(f"Retention cleanup error: {e}")
+            if conn: conn.close()
+
+
+def _retention_loop():
+    """Background loop that fires purge_old_data on a fixed interval."""
+    while True:
+        try:
+            purge_old_data()
+        except Exception as e:
+            log.error(f"Retention thread error: {e}")
+        time.sleep(CLEANUP_INTERVAL_SECS)
+
+# ============================================================
+# DATABASE WRITER
+# ============================================================
+
+def save_soil_reading(data: dict):
+    with db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            conn.execute("""
+                INSERT INTO soil_readings
+                    (device_id, timestamp,
+                     temperature, humidity,
+                     soil_moisture, soil_dry, soil_wet)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data.get("device_id", "cropguard_01"),
+                data.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                data.get("temperature"),
+                data.get("humidity"),
+                data.get("soil_moisture"),
+                1 if data.get("soil_dry",  False) else 0,
+                1 if data.get("soil_wet",  False) else 0,
+            ))
+            conn.commit()
+            log.info(
+                f"Saved | device={data.get('device_id')} | "
+                f"temp={data.get('temperature')}°C | "
+                f"soil={data.get('soil_moisture')}%"
+            )
+        except sqlite3.Error as e:
+            log.error(f"DB write error: {e}")
+        finally:
+            conn.close()
+
+# ============================================================
+# PUBLIC QUERY FUNCTIONS (used by Streamlit + fusion engine)
+# ============================================================
+
+def get_latest_reading(device_id=None):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    where = f"WHERE device_id = '{device_id}'" if device_id else ""
+    row = conn.execute(
+        f"SELECT * FROM soil_readings {where} ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_readings_history(hours=24, device_id=None):
+    conn  = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    where = f"WHERE created_at >= datetime('now', '-{hours} hours')"
+    if device_id:
+        where += f" AND device_id = '{device_id}'"
+    rows = conn.execute(
+        f"SELECT * FROM soil_readings {where} ORDER BY created_at ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_average_scores(hours=24, device_id=None):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    where = f"WHERE created_at >= datetime('now', ?)"
+    if device_id:
+        where += f" AND device_id = '{device_id}'"
+        
+    row  = conn.execute(f"""
+        SELECT
+            AVG(temperature)     as avg_temperature,
+            AVG(humidity)        as avg_humidity,
+            AVG(soil_moisture)   as avg_soil_moisture
+        FROM soil_readings
+        {where}
+    """, (f"-{hours} hours",)).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+def get_duration_metrics(hours=24, device_id=None):
+    """
+    Calculates duration (in hours) of continuous conditions:
+    - High humidity (> 80%)
+    - Wet soil (soil_wet = 1)
+    """
+    readings = get_readings_history(hours=hours, device_id=device_id)
+    if not readings:
+        return {"humidity_high_hours": 0.0, "soil_wet_hours": 0.0}
+
+    # Sort by created_at desc (latest first) to count backwards
+    readings.sort(key=lambda x: x['created_at'], reverse=True)
+
+    hum_hours = 0.0
+    wet_hours = 0.0
+    
+    last_ts = None
+    
+    # Humidity duration
+    for r in readings:
+        ts = datetime.fromisoformat(r['created_at'].replace(' ', 'T'))
+        if r['humidity'] > 80:
+            if last_ts:
+                delta = (last_ts - ts).total_seconds() / 3600.0
+                hum_hours += delta
+            last_ts = ts
+        else:
+            break # continuous chain broken
+
+    last_ts = None
+    # Soil wet duration
+    for r in readings:
+        ts = datetime.fromisoformat(r['created_at'].replace(' ', 'T'))
+        if r['soil_wet'] == 1:
+            if last_ts:
+                delta = (last_ts - ts).total_seconds() / 3600.0
+                wet_hours += delta
+            last_ts = ts
+        else:
+            break # continuous chain broken
+
+    return {
+        "humidity_high_hours": round(hum_hours, 1),
+        "soil_wet_hours": round(wet_hours, 1)
+    }
+
+# ============================================================
+# MQTT CALLBACKS
+# ============================================================
+
+def on_connect(client, userdata, flags, rc, properties=None):
+    if rc == 0:
+        log.info(f"Connected to {MQTT_BROKER}")
+        client.subscribe(MQTT_TOPIC, qos=1)
+        log.info(f"Subscribed to: {MQTT_TOPIC}")
+    else:
+        log.error(f"MQTT connection failed: rc={rc}")
+
+def on_message(client, userdata, msg):
+    try:
+        payload = msg.payload.decode("utf-8")
+        data    = json.loads(payload)
+        if not isinstance(data, dict):
+            return                          # skip bare ints, strings, arrays
+        if "status" in data or "error" in data:
+            return
+        log.info(
+            f"Received | temp={data.get('temperature')}°C | "
+            f"soil={data.get('soil_moisture')}%"
+        )
+        save_soil_reading(data)
+    except json.JSONDecodeError as e:
+        log.warning(f"Invalid JSON: {e}")
+    except Exception as e:
+        log.error(f"Message handling error: {e}")
+
+def on_disconnect(client, userdata, flags, rc, properties=None):
+    if rc != 0:
+        log.warning("Disconnected unexpectedly — auto-reconnecting...")
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+    log.info("=== CropGuard AI Subscriber Starting ===")
+    init_database()
+
+    # Start background data-retention thread (purges data older than 7 days)
+    threading.Thread(target=_retention_loop, daemon=True).start()
+    log.info(f"Data retention active — keeping last {DATA_RETENTION_DAYS} days, cleanup every {CLEANUP_INTERVAL_SECS//3600}h")
+
+    # Start the embedded dashboard API
+    from dashboard_api import start_api_server
+    threading.Thread(target=start_api_server, daemon=True).start()
+    log.info("Embedded Dashboard API started on port 5000")
+
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="plant_subscriber_main")
+    client.on_connect    = on_connect
+    client.on_message    = on_message
+    client.on_disconnect = on_disconnect
+
+    while True:
+        try:
+            client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+            client.loop_forever()
+        except KeyboardInterrupt:
+            log.info("Stopped by user")
+            break
+        except Exception as e:
+            log.error(f"Connection error: {e} | Retrying in 10s...")
+            time.sleep(10)
+
+    client.disconnect()
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,30 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs (auto-rotated, never commit)
+*.log
+*.log.*
+
+# Database (runtime data, not source)
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Model files (too large for git — store separately)
+# *.keras
+# *.joblib

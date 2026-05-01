@@ -1,0 +1,409 @@
+import os
+import json
+import csv
+import io
+import threading
+import sqlite3
+import requests
+from datetime import datetime, timedelta, timezone
+from flask import Flask, jsonify, request, send_file
+from flask_cors import CORS
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer
+from reportlab.lib import colors
+
+app = Flask(__name__, static_folder='../frontend/static', static_url_path='/static')
+CORS(app)
+
+# Use the existing DB from the subscriber
+DB_PATH = 'soil_data.db'
+WEATHER_API_KEY = os.environ.get('OPENWEATHER_API_KEY', 'YOUR_API_KEY_HERE')
+WEATHER_CITY = os.environ.get('WEATHER_CITY', 'Nabadwip')
+
+THRESHOLDS = { "soil_moisture": {"min": 30, "max": 80, "unit": "%"}, "temperature": {"min": 10, "max": 35, "unit": "°C"}, "humidity": {"min": 40, "max": 80, "unit": "%"} }
+calibration = {"soil_moisture": 0, "temperature": 0, "humidity": 0}
+CONFIG_PATH = "config.json"
+
+def load_persistent_config():
+    global WEATHER_CITY
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, 'r') as f:
+                c = json.load(f)
+                WEATHER_CITY = c.get("city", WEATHER_CITY)
+                print(f"Loaded config: City={WEATHER_CITY}")
+        except: pass
+
+def save_persistent_config():
+    try:
+        with open(CONFIG_PATH, 'w') as f:
+            json.dump({"city": WEATHER_CITY}, f)
+    except: pass
+
+load_persistent_config()
+
+def get_latest_sensor():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM soil_readings ORDER BY created_at DESC LIMIT 1").fetchone()
+    conn.close()
+    if row:
+        d = dict(row)
+        timestamp_str = d.get("timestamp")
+        
+        connected = False
+        if timestamp_str:
+            try:
+                # Remove Z if present so it parses as naive, or handle tz
+                clean_ts = timestamp_str.replace("Z", "+00:00")
+                ts = datetime.fromisoformat(clean_ts)
+                # Ensure we compare timezone-aware or naive correctly
+                if ts.tzinfo:
+                    now = datetime.now(ts.tzinfo)
+                else:
+                    now = datetime.now(timezone.utc)
+                    
+                if (now - ts).total_seconds() < 300: # 5 minutes
+                    connected = True
+            except Exception as e:
+                print("Timestamp parse error:", e)
+
+        return {
+            "soil_moisture": round((d.get("soil_moisture") or 0.0) + calibration["soil_moisture"], 1),
+            "temperature": round((d.get("temperature") or 0.0) + calibration["temperature"], 1),
+            "humidity": round((d.get("humidity") or 0.0) + calibration["humidity"], 1),
+            "timestamp": timestamp_str,
+            "connected": connected
+        }
+    return {"soil_moisture": 0.0, "temperature": 0.0, "humidity": 0.0, "timestamp": None, "connected": False}
+
+def get_readings(hours=1, max_rows=1000):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT timestamp, soil_moisture, temperature, humidity FROM soil_readings WHERE created_at >= datetime('now', ?) ORDER BY created_at DESC LIMIT ?", (f"-{hours} hours", max_rows)).fetchall()
+    conn.close()
+    return [{"timestamp": r["timestamp"], "soil_moisture": (r["soil_moisture"] or 0) + calibration["soil_moisture"], "temperature": (r["temperature"] or 0) + calibration["temperature"], "humidity": (r["humidity"] or 0) + calibration["humidity"]} for r in rows]
+
+CACHED_GEO = None
+
+def fetch_weather():
+    global CACHED_GEO, WEATHER_CITY
+    try:
+        if not CACHED_GEO:
+            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={WEATHER_CITY}&count=1"
+            geo_res = requests.get(geo_url, timeout=5).json()
+            if not geo_res.get("results"):
+                raise Exception("City not found")
+            CACHED_GEO = {
+                "lat": geo_res["results"][0]["latitude"],
+                "lon": geo_res["results"][0]["longitude"],
+                "name": geo_res["results"][0]["name"]
+            }
+            
+        lat, lon, city = CACHED_GEO["lat"], CACHED_GEO["lon"], CACHED_GEO["name"]
+        
+        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,surface_pressure,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,precipitation_probability,weather_code,surface_pressure&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max&timezone=auto"
+        aqi_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=european_aqi,us_aqi,pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone,aerosol_optical_depth,dust,uv_index"
+
+        w = requests.get(weather_url, timeout=5).json()
+        a = requests.get(aqi_url, timeout=5).json()
+
+        current = w.get("current", {})
+        aqi_current = a.get("current", {})
+        
+        hourly_raw = w.get("hourly", {})
+        hourly_list = []
+        if "time" in hourly_raw:
+            now_iso = datetime.now().isoformat()[:13]
+            start_idx = 0
+            for i, t in enumerate(hourly_raw["time"]):
+                if t >= now_iso:
+                    start_idx = i
+                    break
+            for i in range(start_idx, min(start_idx+24, len(hourly_raw["time"]))):
+                hourly_list.append({
+                    "time": hourly_raw["time"][i],
+                    "temp": hourly_raw["temperature_2m"][i],
+                    "precip_prob": hourly_raw["precipitation_probability"][i],
+                    "weather_code": hourly_raw["weather_code"][i],
+                    "pressure": hourly_raw["surface_pressure"][i]
+                })
+                
+        daily_raw = w.get("daily", {})
+        daily_list = []
+        if "time" in daily_raw:
+            for i in range(len(daily_raw["time"])):
+                daily_list.append({
+                    "date": daily_raw["time"][i],
+                    "weather_code": daily_raw["weather_code"][i],
+                    "temp_max": daily_raw["temperature_2m_max"][i],
+                    "temp_min": daily_raw["temperature_2m_min"][i],
+                    "sunrise": daily_raw["sunrise"][i],
+                    "sunset": daily_raw["sunset"][i],
+                    "uv_max": daily_raw["uv_index_max"][i]
+                })
+
+        alerts = []
+        for h in hourly_list[:12]:
+            code = h["weather_code"]
+            if code in [95, 96, 99]:
+                alerts.append({"type": "danger", "message": f"SEVERE: Thunderstorm/Hail expected around {h['time'][11:16]}!"})
+                break
+            elif code in [63, 65, 66, 67, 75]:
+                alerts.append({"type": "warning", "message": f"ALERT: Heavy precipitation expected around {h['time'][11:16]}."})
+                break
+
+        # Calculate pressure trend (next 3 hours)
+        p_trend = 0.0
+        if len(hourly_list) >= 4:
+            p_trend = (hourly_list[3]["pressure"] - hourly_list[0]["pressure"]) / 3.0
+
+        result = {
+            "city": city,
+            "alerts": alerts,
+            "current": {
+                "temp": current.get("temperature_2m"),
+                "feels_like": current.get("apparent_temperature"),
+                "humidity": current.get("relative_humidity_2m"),
+                "weather_code": current.get("weather_code"),
+                "is_day": current.get("is_day"),
+                "rain": current.get("precipitation"),
+                "cloud_cover": current.get("cloud_cover"),
+                "pressure": current.get("surface_pressure"),
+                "pressure_trend": round(p_trend, 2),
+                "wind_speed": current.get("wind_speed_10m"),
+                "wind_direction": current.get("wind_direction_10m"),
+                "aqi": aqi_current.get("us_aqi"),
+                "pm2_5": aqi_current.get("pm2_5"),
+                "pm10": aqi_current.get("pm10"),
+                "uv_index": aqi_current.get("uv_index")
+            },
+            "hourly": hourly_list,
+            "daily": daily_list,
+            "fetched_at": datetime.now().isoformat(),
+            "mock": False
+        }
+        return result
+    except Exception as e:
+        print("Weather fetch error:", e)
+        return get_mock_weather()
+
+def get_mock_weather():
+    return {
+        "city": WEATHER_CITY,
+        "alerts": [{"type": "warning", "message": "TEST ALERT: Thunderstorm warning (Mock Data)"}],
+        "current": {
+            "temp": 28.5, "feels_like": 31.2, "humidity": 72,
+            "weather_code": 2, "is_day": 1, "rain": 0, "cloud_cover": 20,
+            "pressure": 1012, "wind_speed": 12, "wind_direction": 180,
+            "aqi": 45, "pm2_5": 12.5, "pm10": 25.0, "uv_index": 6.5
+        },
+        "hourly": [
+            {"time": (datetime.now() + timedelta(hours=i)).strftime("%Y-%m-%dT%H:00"),
+             "temp": 28 + i%3, "precip_prob": 10 if i>10 else 0, "weather_code": 1}
+            for i in range(24)
+        ],
+        "daily": [
+            {"date": (datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d"),
+             "weather_code": 1, "temp_max": 32, "temp_min": 24, 
+             "sunrise": "06:00", "sunset": "18:00", "uv_max": 8.0}
+            for i in range(7)
+        ],
+        "fetched_at": datetime.now().isoformat(),
+        "mock": True
+    }
+
+def generate_insights(sensor, weather):
+    insights = []
+    sm = sensor.get("soil_moisture", 0)
+    temp = sensor.get("temperature", 0)
+    hum = sensor.get("humidity", 0)
+    w_hum = weather.get("current", {}).get("humidity", 0) if weather else 0
+
+    score = 100
+    
+    if sm < THRESHOLDS["soil_moisture"]["min"]:
+        score -= 25
+        insights.append({"level": "warning", "icon": "💧", "title": "Irrigation Needed",
+                         "message": f"Soil moisture ({sm}%) is below minimum ({THRESHOLDS['soil_moisture']['min']}%). Turn on irrigation for 30 minutes."})
+    elif sm > THRESHOLDS["soil_moisture"]["max"]:
+        score -= 20
+        insights.append({"level": "danger", "icon": "🌊", "title": "Soil Oversaturated",
+                         "message": f"Soil moisture ({sm}%) exceeds maximum ({THRESHOLDS['soil_moisture']['max']}%). Halt irrigation and check drainage."})
+    else:
+        insights.append({"level": "success", "icon": "✅", "title": "Moisture Optimal",
+                         "message": "Soil moisture is optimal."})
+
+    if hum > 80 or w_hum > 80:
+        score -= 15
+        insights.append({"level": "danger", "icon": "🍄", "title": "Fungal Disease Risk",
+                         "message": f"High humidity detected ({hum}%). Increase airflow or apply preventative fungicides."})
+
+    if temp > THRESHOLDS["temperature"]["max"]:
+        score -= 25
+        insights.append({"level": "danger", "icon": "🌡️", "title": "Heat Stress Warning",
+                         "message": f"Temperature ({temp}°C) is critically high. Consider shade netting or misting immediately."})
+    elif temp < THRESHOLDS["temperature"]["min"]:
+        score -= 20
+        insights.append({"level": "warning", "icon": "❄️", "title": "Cold Stress Risk",
+                         "message": f"Temperature ({temp}°C) is too cold. Deploy frost covers tonight."})
+
+    rain = weather.get("current", {}).get("rain", 0) if weather else 0
+    if rain > 5:
+        score -= 10
+        insights.append({"level": "info", "icon": "🌧️", "title": "Heavy Rainfall Expected",
+                         "message": f"{rain}mm/h rainfall. Delay manual irrigation."})
+
+    score = max(0, score)
+    
+    tone = "Good morning, conditions are looking optimal today! 🌱"
+    if score < 50:
+        tone = "Critical attention required for your field. Action needed immediately! ⚠️"
+    elif score < 80:
+        tone = f"Conditions are decent, but a few things need your attention today. 🔍"
+        
+    return {
+        "score": score,
+        "tone": tone,
+        "insights": insights
+    }
+
+@app.route('/api/sensor')
+def api_sensor():
+    return jsonify(get_latest_sensor())
+
+@app.route('/api/history')
+def api_history():
+    hours = min(int(request.args.get('hours', 1)), 168)  # max 7 days
+    return jsonify(get_readings(hours, max_rows=1000))
+
+@app.route('/api/weather')
+def api_weather():
+    return jsonify(fetch_weather())
+
+@app.route('/api/insights')
+def api_insights():
+    return jsonify(generate_insights(get_latest_sensor(), fetch_weather()))
+
+@app.route('/api/thresholds', methods=['GET', 'POST'])
+def api_thresholds():
+    global THRESHOLDS
+    if request.method == 'POST':
+        for key in THRESHOLDS:
+            if key in request.json: THRESHOLDS[key].update(request.json[key])
+        return jsonify({"status": "ok", "thresholds": THRESHOLDS})
+    return jsonify(THRESHOLDS)
+
+
+@app.route('/api/config', methods=['GET', 'POST'])
+def api_config():
+    global WEATHER_CITY, CACHED_GEO
+    if request.method == 'POST':
+        req = request.json
+        if req:
+            if "city" in req:
+                WEATHER_CITY = req["city"]
+                CACHED_GEO = None 
+            save_persistent_config()
+    return jsonify({"status": "ok", "city": WEATHER_CITY})
+
+@app.route('/api/calibration', methods=['GET', 'POST'])
+def api_calibration():
+    global calibration
+    if request.method == 'POST':
+        calibration.update(request.json)
+        return jsonify({"status": "ok", "calibration": calibration})
+    return jsonify(calibration)
+
+@app.route('/api/export/csv')
+def export_csv():
+    hours = min(int(request.args.get('hours', 24)), 168)  # max 7 days
+    readings = get_readings(hours, max_rows=500)           # cap at 500 rows
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=['timestamp', 'soil_moisture', 'temperature', 'humidity'])
+    writer.writeheader()
+    writer.writerows(readings)
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode()),
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name=f'agri_report_{datetime.now().strftime("%Y%m%d_%H%M")}.csv'
+    )
+
+@app.route('/api/export/pdf')
+def export_pdf():
+    hours = min(int(request.args.get('hours', 24)), 168)  # max 7 days
+    readings = get_readings(hours, max_rows=200)           # cap at 200 rows for PDF
+    weather = fetch_weather()
+    sensor = get_latest_sensor()
+    insights = generate_insights(sensor, weather)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.75*inch)
+    styles = getSampleStyleSheet()
+    story = []
+
+    title_style = ParagraphStyle('Title', parent=styles['Title'], fontSize=20, textColor=colors.HexColor('#2d5a27'))
+    story.append(Paragraph("Agricultural Dashboard Report", title_style))
+    story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')} | Period: Last {hours}h", styles['Normal']))
+    story.append(Spacer(1, 0.2*inch))
+
+    story.append(Paragraph("Current Sensor Readings", styles['Heading2']))
+    sensor_data = [
+        ['Metric', 'Value', 'Status'],
+        ['Soil Moisture', f"{sensor['soil_moisture']}%", 'OK' if THRESHOLDS['soil_moisture']['min'] <= sensor['soil_moisture'] <= THRESHOLDS['soil_moisture']['max'] else 'ALERT'],
+        ['Temperature', f"{sensor['temperature']}°C", 'OK' if THRESHOLDS['temperature']['min'] <= sensor['temperature'] <= THRESHOLDS['temperature']['max'] else 'ALERT'],
+        ['Humidity', f"{sensor['humidity']}%", 'OK' if THRESHOLDS['humidity']['min'] <= sensor['humidity'] <= THRESHOLDS['humidity']['max'] else 'ALERT'],
+    ]
+    t = Table(sensor_data, colWidths=[2*inch, 2*inch, 2*inch])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2d5a27')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 0.2*inch))
+
+    story.append(Paragraph("Insights & Recommendations", styles['Heading2']))
+    for ins in insights["insights"]:
+        story.append(Paragraph(f"• {ins['title']}: {ins['message']}", styles['Normal']))
+    story.append(Spacer(1, 0.2*inch))
+
+    if readings:
+        story.append(Paragraph(f"Sensor History ({len(readings)} readings)", styles['Heading2']))
+        table_data = [['Timestamp', 'Soil Moisture (%)', 'Temp (°C)', 'Humidity (%)']]
+        for r in readings[-50:]:  # Last 50 rows for PDF
+            table_data.append([r['timestamp'][:16], r['soil_moisture'], r['temperature'], r['humidity']])
+        t2 = Table(table_data, colWidths=[2.2*inch, 1.5*inch, 1.5*inch, 1.5*inch])
+        t2.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2d5a27')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+        ]))
+        story.append(t2)
+
+    doc.build(story)
+    buffer.seek(0)
+    return send_file(buffer, mimetype='application/pdf', as_attachment=True,
+                     download_name=f'agri_report_{datetime.now().strftime("%Y%m%d_%H%M")}.pdf')
+
+@app.route('/')
+def index():
+    frontend_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'agrisense.html')
+    with open(frontend_path, 'r') as f:
+        return f.read()
+
+def start_api_server():
+    import logging
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
+    app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)
+
+if __name__ == '__main__':
+    start_api_server()
