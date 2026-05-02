@@ -1,0 +1,1 @@
+🌿 Intelligent Plant Disease Detection & IoT Soil Health Monitoring System - Combines deep learning-based plant disease detection with real-time IoT soil monitoring, weather integration, and a smart fusion engine for comprehensive crop health management.
