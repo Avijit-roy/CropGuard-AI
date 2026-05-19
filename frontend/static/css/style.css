@@ -443,3 +443,51 @@ body {
 @media (max-width: 900px) {
   .llm-grid { grid-template-columns: 1fr; }
 }
+
+/* ─── Mobile Responsiveness ──────────────────────── */
+@media (max-width: 768px) {
+  /* Layout adjustments */
+  .main { flex-direction: column; height: calc(100vh - 60px); }
+  
+  /* Convert sidebar to bottom navigation tab bar */
+  .sidebar {
+    order: 2; /* Position at the bottom */
+    width: 100%; min-width: 100%; height: auto;
+    border-right: none; border-top: 1px solid var(--border);
+    padding: 0.5rem; flex-direction: row; flex-wrap: nowrap;
+    overflow-x: auto; gap: 0.5rem;
+    background: var(--bg2);
+    z-index: 100;
+  }
+  .sidebar::-webkit-scrollbar { display: none; } /* Hide scrollbar for tabs */
+  .sidebar-section { display: none; } /* Hide headers */
+  .nav-item {
+    flex-direction: column; font-size: 11px; padding: 6px 12px;
+    gap: 4px; min-width: max-content; text-align: center;
+    border: none !important; box-shadow: none !important;
+    background: transparent;
+  }
+  .nav-item:hover { background: transparent; }
+  .nav-item.active { background: transparent; color: var(--green); font-weight: 700; transform: scale(1.05); }
+  
+  /* Content area */
+  .content { padding: 1rem; order: 1; flex: 1; overflow-y: auto; }
+  
+  /* Topbar */
+  .topbar { padding: 0 1rem; justify-content: space-between; }
+  
+  /* Single-column grid overrides */
+  .card-grid { grid-template-columns: 1fr; gap: 1rem; }
+  .chart-grid { grid-template-columns: 1fr; gap: 1rem; }
+  .w-row { flex-direction: column; gap: 1rem; }
+  .w-col-main, .w-col-side { min-width: 100%; }
+  
+  /* Weather details adjustment */
+  .w-details-grid { grid-template-columns: 1fr 1fr; gap: 1rem; }
+  
+  /* Typography scaling */
+  .metric-value { font-size: 2.2rem; }
+  .w-curr-temp { font-size: 3.5rem; }
+  .w-curr-desc { font-size: 16px; }
+  .w-curr-icon { font-size: 3rem; }
+}
