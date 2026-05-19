@@ -9,7 +9,10 @@ const state = {
   currentView: 'overview'
 };
 
-const BASE = window.location.origin;
+const BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? window.location.origin
+  : 'https://cropguard-ai-backend.onrender.com'; // Dynamic Vercel / Render cloud switching
+
 
 let lastFetchTime = null;
 setInterval(() => {
@@ -208,7 +211,11 @@ function setMetric(key, val, unit, valId, min, max, scale, barId, badgeId, cardI
 
 async function fetchWeather() {
   try {
-    const r = await fetch(BASE + '/api/weather');
+    let url = BASE + '/api/weather';
+    if (clientCoords) {
+      url += `?lat=${clientCoords.lat}&lon=${clientCoords.lon}`;
+    }
+    const r = await fetch(url);
     const d = await r.json();
     state.weather = d;
     updateWeatherUI(d);
@@ -341,7 +348,11 @@ async function fetchInsights() {
   }
 
   try {
-    const r = await fetch(BASE + '/api/insights');
+    let url = BASE + '/api/insights';
+    if (clientCoords) {
+      url += `?lat=${clientCoords.lat}&lon=${clientCoords.lon}`;
+    }
+    const r = await fetch(url);
     if (!r.ok) throw new Error("Insights API unreachable");
     const d = await r.json();
     state.insights = d.insights;
@@ -527,6 +538,7 @@ function updateClock() {
 // ─── Init ──────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   initCharts();
+  getClientGeolocation();
   fetchSensor();
   fetchWeather();
   fetchInsights();
@@ -535,4 +547,215 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(fetchInsights, 10000);
   setInterval(updateClock, 1000);
   updateClock();
+  
+  initUSBSerialButton();
 });
+
+// ─── Dynamic Client Geolocation & Weather ───────────
+let clientCoords = null;
+
+function getClientGeolocation() {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        clientCoords = {
+          lat: position.coords.latitude,
+          lon: position.coords.longitude
+        };
+        console.log(`📡 Dynamic GPS Location Obtained: Lat ${clientCoords.lat}, Lon ${clientCoords.lon}`);
+        fetchWeather();
+        fetchInsights();
+      },
+      (error) => {
+        console.warn("⚠️ Location access denied by client, falling back to default city.");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+}
+
+// ─── Web Serial Controller ──────────────────────────
+let serialPort = null;
+let serialReader = null;
+let serialInputBuffer = "";
+
+function initUSBSerialButton() {
+  const btn = document.getElementById('btn-connect-usb');
+  if (!btn) return;
+
+  if (!('serial' in navigator)) {
+    console.warn("❌ Web Serial API not supported in this browser.");
+    btn.style.opacity = '0.5';
+    btn.style.cursor = 'not-allowed';
+    btn.title = "Web Serial API is not supported in this browser. Use Chrome or Edge.";
+    btn.addEventListener('click', () => {
+      document.getElementById('web-serial-warning').style.display = 'flex';
+      showAlert('Web Serial Unsupported', 'Your browser does not support physical USB device connections. Please use Google Chrome, Microsoft Edge, or Opera.', 'danger');
+    });
+    return;
+  }
+
+  btn.addEventListener('click', async () => {
+    if (serialPort) {
+      disconnectUSBSerial();
+    } else {
+      connectUSBSerial();
+    }
+  });
+}
+
+async function connectUSBSerial() {
+  const btn = document.getElementById('btn-connect-usb');
+  try {
+    // Filter to only show Arduino and common USB-to-Serial chips
+    const filters = [
+      { usbVendorId: 0x2341 }, // Arduino Uno R3 / Mega
+      { usbVendorId: 0x1A86 }, // CH340 / CH341 (Arduino Clones)
+      { usbVendorId: 0x10C4 }, // CP2102
+      { usbVendorId: 0x0403 }, // FTDI
+      { usbVendorId: 0x2A03 }, // Arduino Uno (org.arduino)
+    ];
+    serialPort = await navigator.serial.requestPort({ filters });
+    await serialPort.open({ baudRate: 9600 });
+    
+    btn.style.background = 'var(--green)';
+    btn.style.color = '#fff';
+    btn.style.borderStyle = 'solid';
+    btn.innerHTML = '<span class="nav-icon">🔌</span> Connected';
+    
+    showAlert('USB Connected', 'Physical serial link established successfully!', 'success');
+    
+    document.getElementById('serial-dot').classList.add('ok');
+    document.getElementById('serial-label').textContent = 'USB Serial Active';
+
+    const decoder = new TextDecoderStream();
+    serialPort.readable.pipeTo(decoder.writable);
+    serialReader = decoder.readable.getReader();
+
+    readSerialStream();
+
+  } catch (err) {
+    console.error("USB Connection failed:", err);
+    showAlert('USB Connection Failed', 'Could not open serial port. Verify connection and try again.', 'danger');
+    disconnectUSBSerial();
+  }
+}
+
+async function disconnectUSBSerial() {
+  const btn = document.getElementById('btn-connect-usb');
+  
+  if (serialReader) {
+    try {
+      await serialReader.cancel();
+    } catch(e){}
+    serialReader = null;
+  }
+  
+  if (serialPort) {
+    try {
+      await serialPort.close();
+    } catch(e){}
+    serialPort = null;
+  }
+
+  if (btn) {
+    btn.style.background = 'rgba(45, 138, 78, 0.08)';
+    btn.style.color = 'var(--green)';
+    btn.style.borderStyle = 'dashed';
+    btn.innerHTML = '<span class="nav-icon">🔌</span> Connect USB';
+  }
+  
+  document.getElementById('serial-dot').classList.remove('ok');
+  document.getElementById('serial-label').textContent = 'Sensor';
+  showAlert('USB Disconnected', 'Sensor serial port disconnected.', 'info');
+}
+
+async function readSerialStream() {
+  try {
+    while (serialReader && serialPort) {
+      const { value, done } = await serialReader.read();
+      if (done) {
+        break;
+      }
+      if (value) {
+        serialInputBuffer += value;
+        let lineEndIdx;
+        while ((lineEndIdx = serialInputBuffer.indexOf('\n')) !== -1) {
+          const rawLine = serialInputBuffer.substring(0, lineEndIdx).trim();
+          serialInputBuffer = serialInputBuffer.substring(lineEndIdx + 1);
+          
+          if (rawLine) {
+            handleSerialDataLine(rawLine);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error reading serial stream:", err);
+    disconnectUSBSerial();
+  }
+}
+
+function handleSerialDataLine(line) {
+  try {
+    const data = JSON.parse(line);
+    
+    if (data.temperature === undefined || data.humidity === undefined || data.soil_moisture === undefined) {
+      return;
+    }
+    
+    const deviceId = data.device_id || "cropguard_basic";
+    
+    state.sensor = {
+      soil_moisture: parseFloat(data.soil_moisture),
+      temperature: parseFloat(data.temperature),
+      humidity: parseFloat(data.humidity),
+      timestamp: new Date().toISOString(),
+      connected: true
+    };
+    
+    updateSensorUI(state.sensor);
+    
+    const lbl = new Date().toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    const smVal = state.sensor.soil_moisture;
+    const tempVal = state.sensor.temperature;
+    const humVal = state.sensor.humidity;
+    
+    pushChart(miniSm,   lbl, smVal, 40, state.sensor.timestamp);
+    pushChart(miniTemp, lbl, tempVal, 40, state.sensor.timestamp);
+    pushChart(miniHum,  lbl, humVal, 40, state.sensor.timestamp);
+    
+    document.getElementById('mini-sm-val').textContent   = smVal.toFixed(1) + '%';
+    document.getElementById('mini-temp-val').textContent = tempVal.toFixed(1) + '°C';
+    document.getElementById('mini-hum-val').textContent  = humVal.toFixed(1) + '%';
+    document.getElementById('last-update').textContent   = `Connected via USB: ${deviceId} (${lbl})`;
+
+    syncSensorReadingToCloud(deviceId, state.sensor);
+
+  } catch (e) {
+  }
+}
+
+async function syncSensorReadingToCloud(deviceId, sensor) {
+  try {
+    const payload = {
+      device_id: deviceId,
+      soil_moisture: sensor.soil_moisture,
+      temperature: sensor.temperature,
+      humidity: sensor.humidity
+    };
+    
+    const r = await fetch(BASE + '/api/sensor/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    
+    if (!r.ok) {
+      console.warn("Failed to sync sensor reading to database:", await r.text());
+    }
+  } catch (e) {
+    console.error("Network error syncing sensor reading:", e);
+  }
+}
+

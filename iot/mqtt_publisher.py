@@ -11,6 +11,7 @@ import logging
 import logging.handlers
 import paho.mqtt.client as mqtt
 from datetime import datetime, timezone
+import glob
 
 SERIAL_PORT = "/dev/ttyACM0"           # Windows — change to /dev/ttyUSB0 for Linux/Mac
 SERIAL_BAUD = 9600
@@ -118,6 +119,12 @@ def read_serial_data(line):
         log.error(f"Serial read error: {e}")
         return None
 
+def find_serial_port():
+    ports = glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*")
+    if ports:
+        return ports[0]
+    return SERIAL_PORT
+
 def main():
     log.info("=== CropGuard AI Publisher Starting ===")
     log.info(f"Serial Port : {SERIAL_PORT} @ {SERIAL_BAUD} baud")
@@ -129,19 +136,25 @@ def main():
         log.error("Exiting — cannot connect to MQTT broker")
         return
 
-    try:
-        ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=15)
-        log.info(f"Serial opened on {SERIAL_PORT}")
-        time.sleep(2)
-    except serial.SerialException as e:
-        log.error(f"Cannot open serial port {SERIAL_PORT}: {e}")
-        return
-
+    ser = None
     consecutive_errors = 0
     MAX_ERRORS = 10
 
     while True:
         try:
+            if ser is None or not ser.is_open:
+                try:
+                    current_port = find_serial_port()
+                    log.info(f"Attempting to open serial port {current_port}...")
+                    ser = serial.Serial(current_port, SERIAL_BAUD, timeout=15)
+                    log.info(f"Serial opened successfully on {current_port}")
+                    time.sleep(2)
+                    consecutive_errors = 0
+                except serial.SerialException as e:
+                    log.error(f"Cannot open serial port {current_port}: {e}")
+                    time.sleep(10)
+                    continue
+
             last_line = None
             while ser.in_waiting > 0:
                 line = ser.readline()
@@ -172,7 +185,11 @@ def main():
                     consecutive_errors += 1
 
             if consecutive_errors >= MAX_ERRORS:
-                log.error(f"{MAX_ERRORS} consecutive errors — check hardware")
+                log.error(f"{MAX_ERRORS} consecutive errors — check hardware. Reopening port...")
+                if ser:
+                    try: ser.close()
+                    except: pass
+                ser = None
                 consecutive_errors = 0
 
             time.sleep(PUBLISH_INTERVAL)
@@ -180,12 +197,21 @@ def main():
         except KeyboardInterrupt:
             log.info("Stopped by user")
             break
+        except (OSError, serial.SerialException) as e:
+            log.error(f"Serial communication error: {e}. Closing port for retry...")
+            if ser:
+                try: ser.close()
+                except: pass
+            ser = None
+            time.sleep(5)
         except Exception as e:
             log.error(f"Unexpected error: {e}")
             consecutive_errors += 1
             time.sleep(5)
 
-    ser.close()
+    if ser:
+        try: ser.close()
+        except: pass
     mqtt_client.loop_stop()
     mqtt_client.disconnect()
     log.info("Publisher stopped cleanly")

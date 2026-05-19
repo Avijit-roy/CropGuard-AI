@@ -582,9 +582,14 @@ def page_soil_monitor():
     st.title("🌱 Live Soil Health Monitor")
     st.caption(f"Device: {device_id} | Auto-refreshes when new data arrives")
 
-    # Embed AgriSense Dashboard from ardino_proj
+    # Embed AgriSense Dashboard from ardino_proj with explicit permissions for Web Serial & Geolocation
     import streamlit.components.v1 as components
-    components.iframe("http://localhost:5000", height=850, scrolling=True)
+    components.html(
+        '''
+        <iframe src="http://localhost:5000" style="width:100%; height:850px; border:none;" allow="serial; geolocation"></iframe>
+        ''',
+        height=860
+    )
 
 
 

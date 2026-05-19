@@ -65,7 +65,7 @@ def get_latest_sensor():
                 else:
                     now = datetime.now(timezone.utc)
                     
-                if (now - ts).total_seconds() < 300: # 5 minutes
+                if (now - ts).total_seconds() < 15: # 15 seconds (publisher sends every 10s)
                     connected = True
             except Exception as e:
                 print("Timestamp parse error:", e)
@@ -88,24 +88,30 @@ def get_readings(hours=1, max_rows=1000):
 
 CACHED_GEO = None
 
-def fetch_weather():
+def fetch_weather(lat=None, lon=None):
     global CACHED_GEO, WEATHER_CITY
     try:
-        if not CACHED_GEO:
-            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={WEATHER_CITY}&count=1"
-            geo_res = requests.get(geo_url, timeout=5).json()
-            if not geo_res.get("results"):
-                raise Exception("City not found")
-            CACHED_GEO = {
-                "lat": geo_res["results"][0]["latitude"],
-                "lon": geo_res["results"][0]["longitude"],
-                "name": geo_res["results"][0]["name"]
-            }
+        if lat is not None and lon is not None:
+            lat = float(lat)
+            lon = float(lon)
+            city = f"GPS ({round(lat, 3)}, {round(lon, 3)})"
+        else:
+            if not CACHED_GEO:
+                geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={WEATHER_CITY}&count=1"
+                geo_res = requests.get(geo_url, timeout=5).json()
+                if not geo_res.get("results"):
+                    raise Exception("City not found")
+                CACHED_GEO = {
+                    "lat": geo_res["results"][0]["latitude"],
+                    "lon": geo_res["results"][0]["longitude"],
+                    "name": geo_res["results"][0]["name"]
+                }
             
-        lat, lon, city = CACHED_GEO["lat"], CACHED_GEO["lon"], CACHED_GEO["name"]
+            lat, lon, city = CACHED_GEO["lat"], CACHED_GEO["lon"], CACHED_GEO["name"]
         
         weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,surface_pressure,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,precipitation_probability,weather_code,surface_pressure&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max&timezone=auto"
         aqi_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=european_aqi,us_aqi,pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone,aerosol_optical_depth,dust,uv_index"
+
 
         w = requests.get(weather_url, timeout=5).json()
         a = requests.get(aqi_url, timeout=5).json()
@@ -281,11 +287,57 @@ def api_history():
 
 @app.route('/api/weather')
 def api_weather():
-    return jsonify(fetch_weather())
+    lat = request.args.get('lat')
+    lon = request.args.get('lon')
+    return jsonify(fetch_weather(lat, lon))
 
 @app.route('/api/insights')
 def api_insights():
-    return jsonify(generate_insights(get_latest_sensor(), fetch_weather()))
+    lat = request.args.get('lat')
+    lon = request.args.get('lon')
+    return jsonify(generate_insights(get_latest_sensor(), fetch_weather(lat, lon)))
+
+@app.route('/api/sensor/upload', methods=['POST'])
+def api_sensor_upload():
+    data = request.json
+    if not data:
+        return jsonify({"status": "error", "message": "No data received"}), 400
+        
+    device_id = data.get("device_id", "client_usb_device")
+    soil_moisture = data.get("soil_moisture")
+    temperature = data.get("temperature")
+    humidity = data.get("humidity")
+    
+    if soil_moisture is None or temperature is None or humidity is None:
+        return jsonify({"status": "error", "message": "Missing sensor fields"}), 400
+        
+    conn = sqlite3.connect(DB_PATH)
+    timestamp = datetime.now(timezone.utc).isoformat()
+    soil_dry = 1 if float(soil_moisture) < THRESHOLDS["soil_moisture"]["min"] else 0
+    soil_wet = 1 if float(soil_moisture) > THRESHOLDS["soil_moisture"]["max"] else 0
+    
+    try:
+        conn.execute("""
+            INSERT INTO soil_readings (device_id, timestamp, temperature, humidity, soil_moisture, soil_dry, soil_wet, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        """, (
+            device_id,
+            timestamp,
+            float(temperature),
+            float(humidity),
+            float(soil_moisture),
+            soil_dry,
+            soil_wet
+        ))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({"status": "error", "message": str(e)}), 500
+        
+    conn.close()
+    return jsonify({"status": "success", "message": "Sensor data uploaded successfully"})
+
 
 @app.route('/api/thresholds', methods=['GET', 'POST'])
 def api_thresholds():

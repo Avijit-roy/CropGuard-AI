@@ -46,6 +46,10 @@
     <div class="nav-item" onclick="showView('reports')">
       <span class="nav-icon">📁</span> Download Reports
     </div>
+    <div class="sidebar-section">Hardware</div>
+    <div class="nav-item" id="btn-connect-usb" style="background: rgba(45, 138, 78, 0.08); color: var(--green); border: 1px dashed var(--border2); transition: all 0.2s;">
+      <span class="nav-icon">🔌</span> Connect USB
+    </div>
   </nav>
 
   <!-- Content -->
@@ -59,6 +63,11 @@
     <div class="error-banner" id="error-banner">
       <span>⚠️ Sensor Offline: Cannot reach the backend API. Showing cached data.</span>
     </div>
+
+    <div class="error-banner" id="web-serial-warning" style="display:none; background:var(--amber); color:white; box-shadow:0 4px 12px rgba(214,158,46,0.3)">
+      <span>⚠️ Browser Compatibility Warning: Web Serial is not supported in this browser. Please use Google Chrome, Microsoft Edge, or Opera for USB direct sensor reading.</span>
+    </div>
+
 
     <!-- ── OVERVIEW ─────────────────────────────── -->
     <div id="view-overview" class="view active">
