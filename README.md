@@ -29,8 +29,9 @@ The system fuses three data sources — an **AI image classifier**, **live Ardui
 | Feature | Description |
 |---|---|
 | 🔬 **AI Disease Detection** | Upload a leaf photo → MobileNetV2 model classifies disease with top-3 predictions |
-| 📡 **Live IoT Monitoring** | Arduino sensors stream temperature, humidity & soil moisture via MQTT every 10s |
-| 🌦️ **Weather Intelligence** | Current conditions, 24h hourly & 7-day forecasts, AQI, and severe weather alerts |
+| 🔌 **Web Serial Connect** | Browser-level hardware connection filters & reads Arduino USB directly with auto-reconnects |
+| 📡 **Live IoT Monitoring** | Robust Python background publisher auto-detects ports & heals from unplug/replug events |
+| 🌦️ **Dynamic Weather** | Uses Browser Geolocation GPS to pull hyper-local real-time weather & AQI dynamically |
 | 🧬 **Fusion Engine** | Cross-references disease diagnosis with 7-day sensor trends + weather to generate risk scores |
 | 📊 **Interactive Dashboard** | Glassmorphic HTML dashboard with real-time charts, gauge cards & threshold alerts |
 | 📄 **Report Generation** | Export sensor data as CSV or professional PDF reports from the dashboard |
@@ -197,13 +198,15 @@ The Arduino will begin printing JSON sensor data over Serial at 9600 baud:
 
 ### 5. Configure Serial Port
 
-Edit `iot/mqtt_publisher.py` and set the correct serial port:
+The system now features **Auto-Detection**! The publisher (`iot/mqtt_publisher.py`) will automatically scan and connect to any active Arduino (`/dev/ttyACM*` or `/dev/ttyUSB*`). 
+
+If you need to force a specific port, you can manually edit `iot/mqtt_publisher.py`:
 
 ```python
-SERIAL_PORT = "/dev/ttyACM0"    # Linux (typical)
-# SERIAL_PORT = "/dev/ttyUSB0"  # Linux (alternative)
-# SERIAL_PORT = "COM3"          # Windows
+SERIAL_PORT = "/dev/ttyACM1"    # Hardcoded fallback if auto-detect fails
 ```
+
+> **Hot-Plugging**: The system supports live unplugging and replugging. If the USB cable is disconnected, the server will pause and seamlessly reconnect once it is plugged back in.
 
 ### 6. Launch the System
 
@@ -248,15 +251,16 @@ All REST endpoints are served by the Flask API on **port 5000**.
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/sensor` | Latest sensor reading + connection status |
+| `POST` | `/api/sensor/upload` | Upload dynamic Web Serial client sensor readings to SQLite |
 | `GET` | `/api/history?hours=N` | Sensor history (max 168h / 7 days) |
-| `GET` | `/api/weather` | Current weather, hourly + daily forecast, AQI |
-| `GET` | `/api/insights` | Rule-based crop insights with health score |
+| `GET` | `/api/weather?lat=X&lon=Y` | Local weather, hourly/daily forecasts (auto-detects GPS via browser) |
+| `GET` | `/api/insights?lat=X&lon=Y` | Rule-based crop insights with health score |
 | `GET` | `/api/thresholds` | Current alert thresholds |
 | `POST` | `/api/thresholds` | Update alert thresholds |
 | `GET` | `/api/calibration` | Current sensor calibration offsets |
 | `POST` | `/api/calibration` | Update calibration offsets |
-| `GET` | `/api/config` | Current config (city) |
-| `POST` | `/api/config` | Update config (city) |
+| `GET` | `/api/config` | Current config (city fallback if GPS disabled) |
+| `POST` | `/api/config` | Update config (city fallback) |
 | `GET` | `/api/export/csv?hours=N` | Download sensor data as CSV |
 | `GET` | `/api/export/pdf?hours=N` | Download full PDF report |
 
