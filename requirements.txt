@@ -11,3 +11,6 @@ Pillow>=9.0.0
 scikit-learn>=1.2.0
 streamlit-cropper>=0.2.0
 numpy>=1.23.0
+flask>=2.3.0
+flask-cors>=4.0.0
+reportlab>=4.0.0

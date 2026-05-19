@@ -35,9 +35,13 @@ def main():
         time.sleep(3) # Give it a moment to initialize database and server
         
         # 2. Start MQTT Publisher (reads from Arduino)
-        print("[2/3] Starting MQTT Publisher (Serial to MQTT)...")
-        pub_process = subprocess.Popen([sys.executable, "iot/mqtt_publisher.py"])
-        processes.append(pub_process)
+        # Skip this on Render since the hardware is local to the user, not in the cloud
+        if os.environ.get("RENDER"):
+            print("[2/3] Skipping MQTT Publisher (Running on Render, expects local hardware)")
+        else:
+            print("[2/3] Starting MQTT Publisher (Serial to MQTT)...")
+            pub_process = subprocess.Popen([sys.executable, "iot/mqtt_publisher.py"])
+            processes.append(pub_process)
         
         # 3. Start Streamlit Frontend
         print("[3/3] Starting Streamlit Dashboard...")
