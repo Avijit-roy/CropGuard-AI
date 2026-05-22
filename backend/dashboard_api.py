@@ -79,7 +79,6 @@ _label_enc  = None
 def _load_ai_model():
     global _ai_model, _label_enc
     try:
-        import tf_keras  # noqa: side-effect required
         import tensorflow as tf
         import joblib
         _ai_model  = tf.keras.models.load_model(MODEL_PATH, compile=False)
