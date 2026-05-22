@@ -1,12 +1,15 @@
 import os
+import sys
 import json
 import csv
 import io
 import threading
 import sqlite3
+import logging
 import requests
+import numpy as np
 from datetime import datetime, timedelta, timezone
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, render_template, redirect, url_for
 from flask_cors import CORS
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -14,8 +17,18 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer
 from reportlab.lib import colors
 
-app = Flask(__name__, static_folder='../frontend/static', static_url_path='/static')
+# Ensure project root is importable
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+app = Flask(
+    __name__,
+    static_folder='../frontend/static',
+    static_url_path='/static',
+    template_folder='../frontend/templates',
+)
 CORS(app)
+
+log = logging.getLogger(__name__)
 
 # Use the existing DB from the subscriber
 DB_PATH = 'soil_data.db'
@@ -43,6 +56,69 @@ def save_persistent_config():
     except: pass
 
 load_persistent_config()
+
+# ============================================================
+# AI MODEL — loaded once at startup
+# ============================================================
+
+MODEL_PATH   = 'plant_disease_model_new.keras'
+ENCODER_PATH = 'label_encoder_new.joblib'
+_ai_model   = None
+_label_enc  = None
+
+def _load_ai_model():
+    global _ai_model, _label_enc
+    try:
+        import tf_keras  # noqa: side-effect required
+        import tensorflow as tf
+        import joblib
+        _ai_model  = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        _label_enc = joblib.load(ENCODER_PATH)
+        print(f'[CropGuard] AI model loaded — {MODEL_PATH}')
+    except Exception as e:
+        print(f'[CropGuard] WARNING: AI model not loaded: {e}')
+
+_load_ai_model()
+
+# ============================================================
+# IMAGE PROCESSING HELPERS
+# ============================================================
+
+def _suppress_background(img_rgb):
+    import cv2
+    hsv = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2HSV)
+    masks = [
+        cv2.inRange(hsv, np.array([25,40,40]),  np.array([90,255,255])),
+        cv2.inRange(hsv, np.array([15,40,40]),  np.array([35,255,255])),
+        cv2.inRange(hsv, np.array([5, 40,20]),  np.array([20,255,200])),
+    ]
+    mask = masks[0]
+    for m in masks[1:]:
+        mask = cv2.bitwise_or(mask, m)
+    blurred = cv2.GaussianBlur(img_rgb, (25,25), 0)
+    return np.where(mask[:,:,None]==255, img_rgb, blurred)
+
+def _enhance_contrast(img_rgb):
+    import cv2
+    lab      = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2LAB)
+    l, a, b  = cv2.split(lab)
+    clahe    = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    merged   = cv2.merge((clahe.apply(l), a, b))
+    return cv2.cvtColor(merged, cv2.COLOR_LAB2RGB)
+
+def _preprocess_for_model(img_rgb):
+    import cv2
+    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+    resized = cv2.resize(img_rgb, (224,224))
+    return preprocess_input(np.expand_dims(resized.astype('float32'), axis=0))
+
+def _parse_label(label: str):
+    if '___' in label:
+        crop, disease = label.split('___', 1)
+    else:
+        crop, disease = 'Unknown', label
+    disease = disease.replace('_',' ').title()
+    return crop, disease, disease.lower() == 'healthy'
 
 def get_latest_sensor():
     conn = sqlite3.connect(DB_PATH)
@@ -445,16 +521,149 @@ def export_pdf():
     return send_file(buffer, mimetype='application/pdf', as_attachment=True,
                      download_name=f'agri_report_{datetime.now().strftime("%Y%m%d_%H%M")}.pdf')
 
+# ============================================================
+# NEW API: /api/predict  (POST — multipart image)
+# ============================================================
+
+@app.route('/api/predict', methods=['POST'])
+def api_predict():
+    if _ai_model is None:
+        return jsonify({'error': 'AI model not loaded on server'}), 503
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image file in request'}), 400
+    try:
+        from PIL import Image
+        file = request.files['image']
+        pil_img = Image.open(file.stream).convert('RGB')
+        img_rgb = np.array(pil_img)
+
+        processed = _suppress_background(img_rgb)
+        enhanced  = _enhance_contrast(processed)
+        inp       = _preprocess_for_model(enhanced)
+
+        preds = _ai_model.predict(inp, verbose=0)
+        top3_idx = np.argsort(preds[0])[-3:][::-1]
+        idx      = int(top3_idx[0])
+        conf     = float(preds[0][idx]) * 100
+        label    = _label_enc[idx]
+        top3     = [[_label_enc[int(i)], float(preds[0][i])*100] for i in top3_idx]
+
+        crop, disease, healthy = _parse_label(label)
+
+        # Save to DB
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute(
+                'INSERT INTO disease_predictions (device_id,disease,crop,confidence,severity) VALUES (?,?,?,?,?)',
+                ('cropguard_01', 'Healthy' if healthy else disease, crop, float(conf), 'None' if healthy else 'High')
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+        # Fusion
+        fusion_data = None
+        try:
+            from backend.mqtt_subscriber import get_latest_reading, get_average_scores
+            from backend.fusion_engine import fuse, SoilState, WeatherState
+            latest = get_latest_reading('cropguard_01')
+            avg    = get_average_scores(hours=168, device_id='cropguard_01')
+            if latest and latest.get('temperature') is not None:
+                f_temp = avg.get('avg_temperature') or latest['temperature']
+                f_hum  = avg.get('avg_humidity')    or latest['humidity']
+                f_sm   = avg.get('avg_soil_moisture') or latest['soil_moisture']
+                weather_json = fetch_weather()
+                w_curr   = weather_json.get('current', {})
+                w_hourly = weather_json.get('hourly', [])
+                max_prec = max([h.get('precip_prob',0) for h in w_hourly[:6]], default=0.0)
+                soil = SoilState(
+                    temperature=float(f_temp), humidity=float(f_hum),
+                    soil_moisture=float(f_sm),
+                    soil_dry=bool(latest.get('soil_dry',False)),
+                    soil_wet=bool(latest.get('soil_wet',False)),
+                )
+                weather = WeatherState(
+                    temp=w_curr.get('temp') or 0.0,
+                    humidity=w_curr.get('humidity') or 0.0,
+                    rain_mm=w_curr.get('rain') or 0.0,
+                    precip_prob=float(max_prec),
+                    pressure_hpa=w_curr.get('pressure') or 1013.0,
+                    weather_code=w_curr.get('weather_code') or 0,
+                )
+                fr = fuse(label, crop, conf, soil, weather)
+                fusion_data = {
+                    'alert_level':      fr.alert_level,
+                    'risk_score':       fr.risk_score,
+                    'combined_insight': fr.combined_insight,
+                    'soil_advice':      fr.soil_advice,
+                    'immediate_actions':fr.immediate_actions,
+                    'treatment':        fr.treatment,
+                    'prevention':       fr.prevention,
+                    'irrigation_fix':   fr.irrigation_fix,
+                    'fertiliser_fix':   fr.fertiliser_fix,
+                }
+        except Exception as fe:
+            print('Fusion error:', fe)
+
+        return jsonify({
+            'label':       label,
+            'crop':        crop,
+            'disease':     disease,
+            'healthy':     healthy,
+            'confidence':  round(conf, 2),
+            'top3':        top3,
+            'alert_level': 'healthy' if healthy else (fusion_data or {}).get('alert_level','medium'),
+            'fusion':      fusion_data,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================
+# NEW API: /api/disease-history
+# ============================================================
+
+@app.route('/api/disease-history')
+def api_disease_history():
+    limit = min(int(request.args.get('limit', 100)), 500)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f'SELECT * FROM disease_predictions ORDER BY timestamp DESC LIMIT {limit}'
+        ).fetchall()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================
+# PAGE ROUTES (Jinja2 templates)
+# ============================================================
+
 @app.route('/')
-def index():
-    frontend_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'agrisense.html')
-    with open(frontend_path, 'r') as f:
-        return f.read()
+@app.route('/soil')
+def page_soil():
+    return render_template('soil.html', active_page='soil')
+
+@app.route('/disease')
+def page_disease():
+    return render_template('disease.html', active_page='disease')
+
+@app.route('/history')
+def page_history():
+    return render_template('history.html', active_page='history')
+
+@app.route('/preferences')
+def page_preferences():
+    return render_template('preferences.html', active_page='preferences')
+
 
 def start_api_server():
-    import logging
-    log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)
+    wlog = logging.getLogger('werkzeug')
+    wlog.setLevel(logging.ERROR)
     app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)
 
 if __name__ == '__main__':

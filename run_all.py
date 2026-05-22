@@ -4,57 +4,57 @@ import sys
 import os
 
 def kill_port(port):
-    """Kills any process running on the specified port."""
+    """Kill any process using the specified port."""
     try:
-        import subprocess
-        # Find PIDs using the port
         result = subprocess.check_output(["lsof", "-t", f"-i:{port}"], stderr=subprocess.DEVNULL)
         pids = result.decode().strip().split("\n")
         for pid in pids:
             if pid:
-                print(f"⚠️ Port {port} in use by PID {pid}. Cleaning up...")
+                print(f"⚠️  Port {port} in use by PID {pid}. Cleaning up...")
                 subprocess.run(["kill", "-9", pid], check=False)
     except:
         pass
 
 def main():
-    print("========================================")
-    print("🌿 Starting CropGuard AI System")
-    print("========================================")
-    
-    # Ensure port 5000 is free
+    print("=" * 48)
+    print("🌿  CropGuard AI — Flask Edition")
+    print("=" * 48)
+
     kill_port(5000)
-    
+
     processes = []
-    
+
     try:
-        # 1. Start MQTT Subscriber (which also runs the Dashboard API now!)
-        print("[1/3] Starting MQTT Subscriber & API Server...")
-        sub_process = subprocess.Popen([sys.executable, "backend/mqtt_subscriber.py"])
+        # 1. MQTT Subscriber — also starts the Flask API internally
+        print("[1/2] Starting MQTT Subscriber & Flask API server...")
+        sub_process = subprocess.Popen(
+            [sys.executable, "backend/mqtt_subscriber.py"],
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
         processes.append(sub_process)
-        time.sleep(3) # Give it a moment to initialize database and server
-        
-        # 2. Start MQTT Publisher (reads from Arduino)
-        # Skip this on Render since the hardware is local to the user, not in the cloud
+        time.sleep(4)  # Give the API + model time to load
+
+        # 2. MQTT Publisher — reads from Arduino (skip on cloud/Render)
         if os.environ.get("RENDER"):
-            print("[2/3] Skipping MQTT Publisher (Running on Render, expects local hardware)")
+            print("[2/2] Skipping MQTT Publisher (cloud deployment — local hardware not present)")
         else:
-            print("[2/3] Starting MQTT Publisher (Serial to MQTT)...")
-            pub_process = subprocess.Popen([sys.executable, "iot/mqtt_publisher.py"])
+            print("[2/2] Starting MQTT Publisher (Serial → MQTT)...")
+            pub_process = subprocess.Popen(
+                [sys.executable, "iot/mqtt_publisher.py"],
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
             processes.append(pub_process)
-        
-        # 3. Start Streamlit Frontend
-        print("[3/3] Starting Streamlit Dashboard...")
-        streamlit_process = subprocess.Popen([sys.executable, "-m", "streamlit", "run", "frontend/app.py"])
-        processes.append(streamlit_process)
-        
-        print("\n✅ All systems are running! Press Ctrl+C in this terminal to shut everything down cleanly.\n")
-        
-        # Wait for Streamlit to close (or user presses Ctrl+C)
-        streamlit_process.wait()
-        
+
+        print()
+        print("✅  All systems running!")
+        print("   Open your browser at:  http://localhost:5000")
+        print("   Press Ctrl+C to shut everything down.\n")
+
+        # Wait until subscriber exits (or Ctrl+C)
+        sub_process.wait()
+
     except KeyboardInterrupt:
-        print("\n🛑 Shutting down all processes cleanly...")
+        print("\n🛑  Shutting down all processes cleanly...")
     finally:
         for p in processes:
             p.terminate()

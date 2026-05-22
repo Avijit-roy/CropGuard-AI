@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+{% block title %}Disease Detection — CropGuard AI{% endblock %}
+{% block page_title %}🔬 Plant Disease Detection{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-title">🔬 Plant Disease Detection</div>
+  <div class="page-sub">Upload a leaf image — AI will diagnose the disease and fuse with sensor data</div>
+</div>
+
+<div style="display:grid; grid-template-columns:420px 1fr; gap:24px; align-items:start;">
+
+  <!-- ── Left: Upload + Crop ── -->
+  <div>
+    <div class="card" style="padding:20px;">
+      <div class="card-title">📸 Step 1 — Upload Leaf Image</div>
+
+      <!-- Drop zone -->
+      <div class="upload-zone" id="drop-zone">
+        <div class="upload-icon">🌿</div>
+        <div class="upload-title">Drop image here</div>
+        <div class="upload-sub">or click to browse · JPG / PNG · Max 10 MB</div>
+        <input type="file" id="file-input" accept="image/*" style="display:none">
+      </div>
+
+      <!-- Crop preview (hidden until image loaded) -->
+      <div id="crop-section" style="display:none; margin-top:16px;">
+        <div class="card-title" style="margin-bottom:8px;">✂️ Step 2 — Crop the leaf region</div>
+        <div style="position:relative; background:#0d1117; border-radius:8px; overflow:hidden; max-height:320px;">
+          <img id="crop-img" style="display:block; max-width:100%;" alt="Uploaded leaf">
+        </div>
+        <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
+          <button class="btn btn-secondary" onclick="cropper.rotate(-90)">↺ Rotate</button>
+          <button class="btn btn-secondary" onclick="cropper.reset()">Reset</button>
+          <button class="btn btn-primary" id="btn-diagnose" onclick="runDiagnosis()">
+            <span id="btn-text">🚀 Run AI Diagnosis</span>
+            <div class="spinner" id="btn-spinner" style="display:none;width:16px;height:16px;border-width:2px;"></div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Instructions -->
+    <div class="card" style="padding:16px 20px; background:rgba(45,138,78,0.06); border-color:rgba(45,138,78,0.2);">
+      <div style="font-size:12px; color:var(--text2); line-height:1.8;">
+        <strong style="color:var(--green);">Supported crops:</strong> Apple · Potato · Tomato · Pepper Bell · Peach<br>
+        <strong style="color:var(--green);">For best results:</strong> Crop tightly around the leaf, ensure good lighting, avoid blurry images.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right: Results ── -->
+  <div id="result-area">
+    <!-- Empty state -->
+    <div id="empty-state" class="card" style="text-align:center; padding:64px 24px;">
+      <div style="font-size:4rem; margin-bottom:16px;">🌱</div>
+      <div style="font-size:16px; font-weight:600; color:var(--text1); margin-bottom:8px;">Ready for diagnosis</div>
+      <div style="font-size:13px; color:var(--text2);">Upload a leaf photo and click "Run AI Diagnosis" to begin</div>
+    </div>
+
+    <!-- Loading state -->
+    <div id="loading-state" style="display:none;" class="card" style="text-align:center; padding:64px 24px;">
+      <div style="text-align:center; padding:48px 0;">
+        <div class="spinner" style="margin:0 auto 20px; width:48px; height:48px;"></div>
+        <div style="font-weight:600; color:var(--text1); font-size:16px;" id="loading-msg">Processing image…</div>
+        <div style="font-size:12px; color:var(--text2); margin-top:8px;">Background suppression → Contrast enhancement → AI inference</div>
+      </div>
+    </div>
+
+    <!-- Result panel (populated by JS) -->
+    <div id="result-panel" style="display:none;">
+
+      <!-- Diagnosis header -->
+      <div class="diagnosis-header card" style="margin-bottom:20px;">
+        <div class="diagnosis-icon" id="res-icon">🌿</div>
+        <div style="flex:1;">
+          <div class="diagnosis-crop" id="res-crop">Crop: —</div>
+          <div class="diagnosis-disease" id="res-disease">—</div>
+          <div style="display:flex; align-items:center; gap:12px; margin-top:6px; flex-wrap:wrap;">
+            <div class="confidence-bar"><div class="confidence-fill" id="res-conf-bar" style="width:0%"></div></div>
+            <div class="diagnosis-conf" id="res-conf">0% confidence</div>
+            <span class="badge" id="res-alert-badge">—</span>
+          </div>
+        </div>
+        <div>
+          <a id="btn-download-report" class="btn btn-outline" style="font-size:12px;" href="#">📄 Download Report</a>
+        </div>
+      </div>
+
+      <!-- Low confidence warning -->
+      <div id="low-conf-warning" class="alert alert-medium" style="display:none;">
+        ⚠️ Low confidence result — try a clearer image or crop more tightly around the affected leaf.
+      </div>
+
+      <!-- Top-3 Predictions -->
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-title">📊 Top-3 Model Predictions</div>
+        <div id="top3-bars"></div>
+      </div>
+
+      <!-- Fusion Analysis -->
+      <div id="fusion-panel" class="fusion-panel" style="display:none;">
+        <div class="fusion-header">
+          <div class="fusion-title">🧬 Fusion Analysis — Disease + Soil Intelligence</div>
+          <div>
+            <span style="font-size:12px; color:var(--text2);">Risk Score: </span>
+            <strong id="fusion-risk" style="color:var(--text1);">—/100</strong>
+          </div>
+        </div>
+        <div class="fusion-body">
+          <div id="fusion-insight" class="alert" style="margin-bottom:16px;"></div>
+          <div class="fusion-section-title">📡 Sensor Context</div>
+          <div id="fusion-soil" style="font-size:12px; color:var(--text2); margin-bottom:16px;"></div>
+
+          <div class="fusion-section-title">🚀 Immediate Actions</div>
+          <div id="fusion-actions" style="margin-bottom:16px;"></div>
+
+          <div class="fusion-grid">
+            <div>
+              <div class="fusion-section-title">💊 Treatment</div>
+              <div id="fusion-treatment"></div>
+            </div>
+            <div>
+              <div class="fusion-section-title">🛡️ Prevention</div>
+              <div id="fusion-prevention"></div>
+            </div>
+            <div>
+              <div class="fusion-section-title">💧 Irrigation</div>
+              <div id="fusion-irrigation" style="font-size:13px; color:var(--text2);"></div>
+            </div>
+            <div>
+              <div class="fusion-section-title">🌿 Fertiliser</div>
+              <div id="fusion-fertiliser" style="font-size:13px; color:var(--text2);"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- No sensor data info -->
+      <div id="no-sensor-info" class="alert alert-info" style="display:none;">
+        ℹ️ Connect your IoT device to unlock Fusion Analysis — disease result cross-referenced with live soil & weather data.
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let cropper = null;
+let lastResult = null;
+
+// ── Drop Zone ──────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) loadImage(file);
+});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadImage(e.target.files[0]); });
+
+function loadImage(file) {
+  if (file.size > 10 * 1024 * 1024) { showToast('File too large (max 10MB)', 'error'); return; }
+  const url = URL.createObjectURL(file);
+  const img = document.getElementById('crop-img');
+  img.src = url;
+  document.getElementById('crop-section').style.display = 'block';
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('result-panel').style.display = 'none';
+  document.getElementById('loading-state').style.display = 'none';
+
+  if (cropper) { cropper.destroy(); cropper = null; }
+  img.onload = () => {
+    cropper = new Cropper(img, {
+      viewMode: 2,
+      dragMode: 'crop',
+      autoCropArea: 0.8,
+      responsive: true,
+      background: false,
+      guides: true,
+    });
+  };
+}
+
+// ── Run Diagnosis ──────────────────────────────────
+async function runDiagnosis() {
+  if (!cropper) { showToast('Please upload an image first', 'error'); return; }
+
+  const btn = document.getElementById('btn-diagnose');
+  const btnText = document.getElementById('btn-text');
+  const spinner = document.getElementById('btn-spinner');
+  btn.disabled = true;
+  btnText.textContent = 'Processing…';
+  spinner.style.display = 'block';
+
+  document.getElementById('loading-state').style.display = 'block';
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('result-panel').style.display = 'none';
+
+  try {
+    // Get cropped canvas → blob
+    document.getElementById('loading-msg').textContent = 'Cropping image…';
+    const canvas = cropper.getCroppedCanvas({ width: 640, height: 640 });
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
+
+    document.getElementById('loading-msg').textContent = 'Running AI model…';
+    const formData = new FormData();
+    formData.append('image', blob, 'leaf.jpg');
+
+    const resp = await fetch('/api/predict', { method: 'POST', body: formData });
+    if (!resp.ok) throw new Error((await resp.json()).error || 'Prediction failed');
+    const data = await resp.json();
+    lastResult = data;
+
+    displayResult(data);
+  } catch(err) {
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('empty-state').style.display = 'block';
+    showToast('Error: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btnText.textContent = '🚀 Run AI Diagnosis';
+    spinner.style.display = 'none';
+  }
+}
+
+// ── Display Result ─────────────────────────────────
+const ALERT_COLORS = {
+  critical: '#e53e3e', high: '#dd6b20', medium: '#d69e2e',
+  low: '#2d8a4e', healthy: '#2d8a4e'
+};
+
+function displayResult(d) {
+  document.getElementById('loading-state').style.display = 'none';
+  document.getElementById('result-panel').style.display = 'block';
+
+  const healthy = d.healthy;
+  const icon = healthy ? '✅' : (d.alert_level === 'critical' ? '🚨' : '⚠️');
+  document.getElementById('res-icon').textContent = icon;
+  document.getElementById('res-crop').textContent = 'Crop: ' + d.crop;
+  document.getElementById('res-disease').textContent = healthy ? '✅ Healthy Plant' : '⚠️ ' + d.disease;
+  document.getElementById('res-conf-bar').style.width = d.confidence + '%';
+  document.getElementById('res-conf').textContent = d.confidence.toFixed(1) + '% confidence';
+
+  const badge = document.getElementById('res-alert-badge');
+  badge.textContent = (d.alert_level || 'unknown').toUpperCase();
+  badge.className = 'badge badge-' + (d.alert_level || 'low');
+
+  document.getElementById('low-conf-warning').style.display = d.confidence < 60 ? 'flex' : 'none';
+
+  // Top-3
+  const top3Div = document.getElementById('top3-bars');
+  top3Div.innerHTML = d.top3.map(([lbl, pct]) => {
+    const parts = lbl.split('___');
+    const name = (parts[1] || lbl).replace(/_/g,' ');
+    const crop = parts[0] || '';
+    return `<div class="top3-bar">
+      <div class="top3-label">${crop} — ${name.charAt(0).toUpperCase()+name.slice(1)}</div>
+      <div class="top3-track"><div class="top3-fill" style="width:${pct}%"></div></div>
+      <div class="top3-pct">${pct.toFixed(1)}%</div>
+    </div>`;
+  }).join('');
+
+  // Fusion
+  if (d.fusion) {
+    const f = d.fusion;
+    document.getElementById('fusion-panel').style.display = 'block';
+    document.getElementById('no-sensor-info').style.display = 'none';
+    document.getElementById('fusion-risk').textContent = f.risk_score + '/100';
+
+    const insightEl = document.getElementById('fusion-insight');
+    const alertClass = {critical:'alert-critical', high:'alert-high', medium:'alert-medium', low:'alert-low', healthy:'alert-low'}[f.alert_level] || 'alert-info';
+    insightEl.className = 'alert ' + alertClass;
+    insightEl.innerHTML = '<strong>🔍 AI Insight:</strong> ' + f.combined_insight;
+
+    document.getElementById('fusion-soil').textContent = f.soil_advice;
+
+    document.getElementById('fusion-actions').innerHTML = f.immediate_actions.map(a =>
+      `<div class="action-item"><span>⚡</span><span>${a}</span></div>`).join('');
+    document.getElementById('fusion-treatment').innerHTML = f.treatment.map(t =>
+      `<div class="action-item"><span>💊</span><span>${t}</span></div>`).join('');
+    document.getElementById('fusion-prevention').innerHTML = f.prevention.map(p =>
+      `<div class="action-item"><span>🛡️</span><span>${p}</span></div>`).join('');
+    document.getElementById('fusion-irrigation').textContent = f.irrigation_fix;
+    document.getElementById('fusion-fertiliser').textContent = f.fertiliser_fix;
+  } else {
+    document.getElementById('fusion-panel').style.display = 'none';
+    document.getElementById('no-sensor-info').style.display = 'flex';
+  }
+
+  // Download report link
+  buildReportUrl(d);
+}
+
+function buildReportUrl(d) {
+  const lines = [
+    'CropGuard AI — Plant Disease Report',
+    '='.repeat(40),
+    'Date       : ' + new Date().toLocaleString(),
+    'Crop       : ' + d.crop,
+    'Disease    : ' + (d.healthy ? 'Healthy' : d.disease),
+    'Confidence : ' + d.confidence.toFixed(2) + '%',
+  ];
+  if (d.fusion) {
+    const f = d.fusion;
+    lines.push('', 'Fusion Alert  : ' + f.alert_level.toUpperCase());
+    lines.push('Risk Score    : ' + f.risk_score + '/100');
+    lines.push('AI Insight    : ' + f.combined_insight);
+    lines.push('', 'Immediate Actions', '-'.repeat(40));
+    f.immediate_actions.forEach(a => lines.push('  • ' + a));
+    lines.push('', 'Treatment', '-'.repeat(40));
+    f.treatment.forEach(t => lines.push('  • ' + t));
+    lines.push('', 'Prevention', '-'.repeat(40));
+    f.prevention.forEach(p => lines.push('  • ' + p));
+    lines.push('', 'Irrigation : ' + f.irrigation_fix);
+    lines.push('Fertiliser  : ' + f.fertiliser_fix);
+  }
+  const blob = new Blob([lines.join('\n')], {type:'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a = document.getElementById('btn-download-report');
+  a.href = url;
+  a.download = 'diagnosis_' + new Date().toISOString().slice(0,16).replace('T','_') + '.txt';
+}
+</script>
+{% endblock %}

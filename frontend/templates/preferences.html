@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Preferences — CropGuard AI{% endblock %}
+{% block page_title %}⚙️ System Preferences{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-title">⚙️ System Preferences</div>
+  <div class="page-sub">Configure thresholds, sensor calibration, and weather settings</div>
+</div>
+
+<div id="pref-error" class="alert alert-critical" style="display:none;">
+  ⚠️ Cannot connect to backend API. Make sure the server is running.
+</div>
+
+<!-- ── Grid layout ── -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+
+  <!-- ── Weather Config ── -->
+  <div class="card">
+    <div class="card-title">🌐 Weather Configuration</div>
+    <div class="form-group">
+      <label class="form-label">City Name</label>
+      <input class="form-input" id="cfg-city" placeholder="e.g. Nabadwip" value="">
+    </div>
+    <div style="font-size:12px; color:var(--text2); margin-bottom:14px;">
+      Weather data is fetched automatically from Open-Meteo (no API key required).<br>
+      You can also let the web interface auto-detect location via GPS.
+    </div>
+    <button class="btn btn-primary" onclick="saveWeather()">💾 Save Weather Config</button>
+  </div>
+
+  <!-- ── Sensor Calibration ── -->
+  <div class="card">
+    <div class="card-title">🔧 Sensor Calibration</div>
+    <div style="font-size:12px; color:var(--text2); margin-bottom:14px;">
+      Offsets added to raw sensor values to correct hardware drift. Use 0 for no correction.
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Soil Moisture Offset (%)</label>
+        <input class="form-input" id="cal-sm" type="number" step="0.1" value="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Temperature Offset (°C)</label>
+        <input class="form-input" id="cal-temp" type="number" step="0.1" value="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Humidity Offset (%)</label>
+        <input class="form-input" id="cal-hum" type="number" step="0.1" value="0">
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="saveCalibration()">🔧 Apply Calibration</button>
+  </div>
+
+  <!-- ── Alert Thresholds ── -->
+  <div class="card" style="grid-column:1/-1;">
+    <div class="card-title">⚠️ Alert Thresholds</div>
+    <div style="font-size:12px; color:var(--text2); margin-bottom:18px;">
+      Alerts and insights are triggered when sensor values fall outside these ranges.
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px;">
+      <!-- Soil Moisture -->
+      <div>
+        <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">💧 Soil Moisture (%)</div>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+          <div class="form-group" style="flex:1; margin:0;">
+            <label class="form-label">Min</label>
+            <input class="form-input" id="th-sm-min" type="number" value="30">
+          </div>
+          <div style="color:var(--text3); margin-top:20px;">—</div>
+          <div class="form-group" style="flex:1; margin:0;">
+            <label class="form-label">Max</label>
+            <input class="form-input" id="th-sm-max" type="number" value="80">
+          </div>
+        </div>
+        <div id="bar-sm" class="threshold-preview" style="height:6px; background:var(--bg3); border-radius:3px;"></div>
+      </div>
+
+      <!-- Temperature -->
+      <div>
+        <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">🌡️ Temperature (°C)</div>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+          <div class="form-group" style="flex:1; margin:0;">
+            <label class="form-label">Min</label>
+            <input class="form-input" id="th-temp-min" type="number" value="10">
+          </div>
+          <div style="color:var(--text3); margin-top:20px;">—</div>
+          <div class="form-group" style="flex:1; margin:0;">
+            <label class="form-label">Max</label>
+            <input class="form-input" id="th-temp-max" type="number" value="35">
+          </div>
+        </div>
+      </div>
+
+      <!-- Humidity -->
+      <div>
+        <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">💦 Humidity (%)</div>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+          <div class="form-group" style="flex:1; margin:0;">
+            <label class="form-label">Min</label>
+            <input class="form-input" id="th-hum-min" type="number" value="40">
+          </div>
+          <div style="color:var(--text3); margin-top:20px;">—</div>
+          <div class="form-group" style="flex:1; margin:0;">
+            <label class="form-label">Max</label>
+            <input class="form-input" id="th-hum-max" type="number" value="80">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;">
+      <button class="btn btn-primary" onclick="saveThresholds()">💾 Save Thresholds</button>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Load current settings ──────────────────────────
+async function loadSettings() {
+  try {
+    const [thRes, calRes, cfgRes] = await Promise.all([
+      fetch('/api/thresholds'),
+      fetch('/api/calibration'),
+      fetch('/api/config'),
+    ]);
+    if (!thRes.ok) throw new Error('API unavailable');
+
+    const th  = await thRes.json();
+    const cal = await calRes.json();
+    const cfg = await cfgRes.json();
+
+    document.getElementById('th-sm-min').value   = th.soil_moisture?.min ?? 30;
+    document.getElementById('th-sm-max').value   = th.soil_moisture?.max ?? 80;
+    document.getElementById('th-temp-min').value = th.temperature?.min ?? 10;
+    document.getElementById('th-temp-max').value = th.temperature?.max ?? 35;
+    document.getElementById('th-hum-min').value  = th.humidity?.min ?? 40;
+    document.getElementById('th-hum-max').value  = th.humidity?.max ?? 80;
+
+    document.getElementById('cal-sm').value   = cal.soil_moisture ?? 0;
+    document.getElementById('cal-temp').value = cal.temperature   ?? 0;
+    document.getElementById('cal-hum').value  = cal.humidity      ?? 0;
+
+    document.getElementById('cfg-city').value = cfg.city ?? '';
+  } catch(e) {
+    document.getElementById('pref-error').style.display = 'flex';
+  }
+}
+
+// ── Save functions ─────────────────────────────────
+async function saveWeather() {
+  const city = document.getElementById('cfg-city').value.trim();
+  if (!city) { showToast('Enter a city name', 'error'); return; }
+  const res = await fetch('/api/config', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({city})
+  });
+  showToast(res.ok ? '✅ Weather config saved!' : '❌ Save failed', res.ok ? 'success' : 'error');
+}
+
+async function saveCalibration() {
+  const payload = {
+    soil_moisture: parseFloat(document.getElementById('cal-sm').value) || 0,
+    temperature:   parseFloat(document.getElementById('cal-temp').value) || 0,
+    humidity:      parseFloat(document.getElementById('cal-hum').value) || 0,
+  };
+  const res = await fetch('/api/calibration', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  showToast(res.ok ? '✅ Calibration applied!' : '❌ Save failed', res.ok ? 'success' : 'error');
+}
+
+async function saveThresholds() {
+  const payload = {
+    soil_moisture: {
+      min: parseInt(document.getElementById('th-sm-min').value),
+      max: parseInt(document.getElementById('th-sm-max').value),
+    },
+    temperature: {
+      min: parseInt(document.getElementById('th-temp-min').value),
+      max: parseInt(document.getElementById('th-temp-max').value),
+    },
+    humidity: {
+      min: parseInt(document.getElementById('th-hum-min').value),
+      max: parseInt(document.getElementById('th-hum-max').value),
+    },
+  };
+  const res = await fetch('/api/thresholds', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  showToast(res.ok ? '✅ Thresholds updated!' : '❌ Save failed', res.ok ? 'success' : 'error');
+}
+
+loadSettings();
+</script>
+{% endblock %}

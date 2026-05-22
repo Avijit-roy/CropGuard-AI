@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}History — CropGuard AI{% endblock %}
+{% block page_title %}📄 Detection & Soil History{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-title">📄 Detection & Soil History</div>
+  <div class="page-sub">Last 7 days · older records are auto-purged</div>
+</div>
+
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('disease', this)">🔬 Disease Predictions</button>
+  <button class="tab-btn" onclick="switchTab('soil', this)">🌱 Soil Readings</button>
+</div>
+
+<!-- ── Disease Predictions Tab ── -->
+<div class="tab-pane active" id="tab-disease">
+  <div class="card" style="padding:0; overflow:hidden;">
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid var(--border1);">
+      <div style="font-size:13px; font-weight:600; color:var(--text1);">Disease Predictions (last 100)</div>
+      <button class="btn btn-secondary" onclick="exportCSV('disease')" style="font-size:12px; padding:6px 14px;">⬇️ Export CSV</button>
+    </div>
+    <div id="disease-loading" style="text-align:center; padding:40px; color:var(--text2);">
+      <div class="spinner" style="margin:0 auto 12px;"></div>Loading…
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="data-table" id="disease-table" style="display:none;">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Timestamp</th>
+            <th>Crop</th>
+            <th>Disease</th>
+            <th>Confidence</th>
+            <th>Severity</th>
+          </tr>
+        </thead>
+        <tbody id="disease-tbody"></tbody>
+      </table>
+      <div id="disease-empty" class="alert alert-info" style="display:none; margin:20px;">
+        No disease predictions yet — run a diagnosis first.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Soil Readings Tab ── -->
+<div class="tab-pane" id="tab-soil">
+  <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap; align-items:center;">
+    <div class="form-group" style="margin:0; display:flex; align-items:center; gap:10px;">
+      <label class="form-label" style="margin:0; white-space:nowrap;">Time Range:</label>
+      <select class="form-select" id="soil-hours" style="width:160px;" onchange="loadSoilHistory()">
+        <option value="1">Last 1 Hour</option>
+        <option value="6">Last 6 Hours</option>
+        <option value="24" selected>Last 24 Hours</option>
+        <option value="168">Last 7 Days</option>
+      </select>
+    </div>
+    <button class="btn btn-secondary" onclick="exportCSV('soil')" style="font-size:12px; padding:6px 14px;">⬇️ Export CSV</button>
+    <span id="soil-count" style="font-size:12px; color:var(--text2);"></span>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <div id="soil-loading" style="text-align:center; padding:40px; color:var(--text2);">
+      <div class="spinner" style="margin:0 auto 12px;"></div>Loading…
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="data-table" id="soil-table" style="display:none;">
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Soil Moisture (%)</th>
+            <th>Temperature (°C)</th>
+            <th>Humidity (%)</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="soil-tbody"></tbody>
+      </table>
+      <div id="soil-empty" class="alert alert-info" style="display:none; margin:20px;">
+        No soil readings yet — connect your IoT device to start recording.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let diseaseData = [];
+let soilData = [];
+
+// ── Tab switching ──────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
+
+// ── Disease History ────────────────────────────────
+async function loadDiseaseHistory() {
+  try {
+    const resp = await fetch('/api/disease-history');
+    const data = await resp.json();
+    diseaseData = data;
+    document.getElementById('disease-loading').style.display = 'none';
+
+    if (!data || data.length === 0) {
+      document.getElementById('disease-empty').style.display = 'flex';
+      return;
+    }
+    document.getElementById('disease-table').style.display = 'table';
+    const tbody = document.getElementById('disease-tbody');
+    tbody.innerHTML = data.map((r, i) => {
+      const isHealthy = (r.disease || '').toLowerCase() === 'healthy';
+      const sev = r.severity || '—';
+      return `<tr>
+        <td style="color:var(--text3);">${i+1}</td>
+        <td>${fmtDate(r.timestamp)}</td>
+        <td>${r.crop || '—'}</td>
+        <td><span style="color:${isHealthy ? 'var(--green)' : '#f6ad55'};">${r.disease || '—'}</span></td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="progress-bar" style="width:80px;"><div class="progress-fill" style="width:${r.confidence||0}%"></div></div>
+            <span style="color:var(--text2);">${(r.confidence||0).toFixed(1)}%</span>
+          </div>
+        </td>
+        <td><span class="badge badge-${severityToBadge(sev)}">${sev}</span></td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('disease-loading').innerHTML = '<span style="color:var(--red);">Failed to load history</span>';
+  }
+}
+
+function severityToBadge(s) {
+  s = (s||'').toLowerCase();
+  if (s === 'high' || s === 'critical') return 'critical';
+  if (s === 'medium') return 'medium';
+  if (s === 'low' || s === 'none') return 'healthy';
+  return 'low';
+}
+
+// ── Soil History ───────────────────────────────────
+async function loadSoilHistory() {
+  const hours = document.getElementById('soil-hours').value;
+  document.getElementById('soil-loading').style.display = 'block';
+  document.getElementById('soil-table').style.display = 'none';
+  document.getElementById('soil-empty').style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/history?hours=' + hours);
+    const data = await resp.json();
+    soilData = data;
+    document.getElementById('soil-loading').style.display = 'none';
+
+    if (!data || data.length === 0) {
+      document.getElementById('soil-empty').style.display = 'flex';
+      document.getElementById('soil-count').textContent = '';
+      return;
+    }
+
+    document.getElementById('soil-count').textContent = data.length + ' readings';
+    document.getElementById('soil-table').style.display = 'table';
+
+    const rows = data.slice(-500).reverse(); // most recent first, cap 500
+    const tbody = document.getElementById('soil-tbody');
+    tbody.innerHTML = rows.map(r => {
+      const sm = r.soil_moisture || 0;
+      const smOk = sm >= 30 && sm <= 80;
+      const temp = r.temperature || 0;
+      const tempOk = temp >= 10 && temp <= 35;
+      const hum = r.humidity || 0;
+      const humOk = hum >= 40 && hum <= 80;
+      const allOk = smOk && tempOk && humOk;
+      return `<tr>
+        <td>${fmtDate(r.timestamp)}</td>
+        <td style="color:${smOk?'var(--green)':'#f6ad55'};">${sm.toFixed(1)}</td>
+        <td style="color:${tempOk?'var(--text1)':'#f6ad55'};">${temp.toFixed(1)}</td>
+        <td style="color:${humOk?'var(--text1)':'#f6ad55'};">${hum.toFixed(1)}</td>
+        <td><span class="badge badge-${allOk?'healthy':'medium'}">${allOk?'OPTIMAL':'CHECK'}</span></td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('soil-loading').innerHTML = '<span style="color:var(--red);">Failed to load soil data</span>';
+  }
+}
+
+// ── CSV Export ─────────────────────────────────────
+function exportCSV(type) {
+  if (type === 'soil') {
+    const hours = document.getElementById('soil-hours').value;
+    window.open('/api/export/csv?hours=' + hours, '_blank');
+  } else {
+    // Client-side disease CSV
+    const headers = ['id','timestamp','crop','disease','confidence','severity'];
+    const rows = diseaseData.map(r => headers.map(h => JSON.stringify(r[h]||'')).join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+    a.download = 'disease_history.csv';
+    a.click();
+  }
+}
+
+// ── Helpers ────────────────────────────────────────
+function fmtDate(ts) {
+  if (!ts) return '—';
+  try { return new Date(ts).toLocaleString('en-IN'); } catch { return ts; }
+}
+
+// ── Init ───────────────────────────────────────────
+loadDiseaseHistory();
+loadSoilHistory();
+</script>
+{% endblock %}

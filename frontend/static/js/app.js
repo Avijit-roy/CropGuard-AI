@@ -1,92 +1,83 @@
 // ─── State ─────────────────────────────────────────
 const state = {
-  sensor: { soil_moisture: 0, temperature: 0, humidity: 0, timestamp: null, connected: false },
-  weather: null,
-  history: [],
-  insights: [],
-  thresholds: { soil_moisture: {min:30,max:80}, temperature: {min:10,max:35}, humidity: {min:40,max:80} },
-  range: 1,
-  currentView: 'overview'
+  sensor:     { soil_moisture:0, temperature:0, humidity:0, timestamp:null, connected:false },
+  weather:    null,
+  history:    [],
+  insights:   [],
+  thresholds: { soil_moisture:{min:30,max:80}, temperature:{min:10,max:35}, humidity:{min:40,max:80} },
+  range:      1,
+  currentView:'overview'
 };
 
-const BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+const BASE = (window.location.hostname==='localhost' || window.location.hostname==='127.0.0.1')
   ? window.location.origin
-  : 'https://cropguard-ai-backend.onrender.com'; // Dynamic Vercel / Render cloud switching
-
+  : 'https://cropguard-ai-backend.onrender.com';
 
 let lastFetchTime = null;
+let clientCoords  = null;
+
+// ── Helpers ─────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const set = (id, text) => { const e=$( id); if(e) e.textContent=text; };
+const setHtml = (id, html) => { const e=$(id); if(e) e.innerHTML=html; };
+
+// ── Last-update ticker ───────────────────────────────
 setInterval(() => {
   if (!lastFetchTime) return;
-  const seconds = Math.floor((new Date() - lastFetchTime) / 1000);
-  let timeText = `Last updated: ${seconds} seconds ago`;
-  if (seconds > 60) {
-    timeText = `Last updated: ${Math.floor(seconds/60)} minutes ago`;
-  }
-  document.getElementById('last-update').textContent = timeText;
-  
-  if (seconds > 30) {
-     document.getElementById('live-dot').style.animation = 'none';
-     document.getElementById('live-dot').style.background = 'var(--red)';
-  } else {
-     document.getElementById('live-dot').style.animation = 'pulse 2s infinite';
-     document.getElementById('live-dot').style.background = 'var(--green)';
+  const s = Math.floor((Date.now() - lastFetchTime) / 1000);
+  set('last-update', s > 60 ? `Last updated: ${Math.floor(s/60)}m ago` : `Last updated: ${s}s ago`);
+  const dot = $('live-dot');
+  if (dot) {
+    if (s > 30) { dot.style.animation='none'; dot.style.background='var(--red)'; }
+    else        { dot.style.animation='pulse 2s infinite'; dot.style.background='var(--green)'; }
   }
 }, 1000);
 
-// ─── Chart Instances ───────────────────────────────
+// ─── Charts ─────────────────────────────────────────
 let miniSm, miniTemp, miniHum, fullSm, fullTemp, fullHum;
 
-const chartDefaults = (color, label) => ({
-  type: 'line',
-  data: { labels: [], datasets: [{ label, data: [], borderColor: color,
-    backgroundColor: color + '33', fill: true, tension: 0.4, pointRadius: 3, pointHoverRadius: 6,
-    borderWidth: 3 }] },
-  options: {
-    responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
-    scales: {
-      x: { display: false },
-      y: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { color: '#718096', font: { size: 11, family: 'DM Mono' } } }
+const mkChartCfg = (color, label) => ({
+  type:'line',
+  data:{ labels:[], datasets:[{ label, data:[], borderColor:color,
+    backgroundColor:color+'33', fill:true, tension:0.4, pointRadius:2, borderWidth:2 }] },
+  options:{
+    responsive:true, maintainAspectRatio:false, animation:{ duration:300 },
+    scales:{
+      x:{ display:false },
+      y:{ grid:{ color:'rgba(255,255,255,0.05)' },
+          ticks:{ color:'#718096', font:{ size:11 } } }
     },
-    plugins: { legend: { display: false }, tooltip: {
-      backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderWidth: 1,
-      titleColor: '#1a202c', bodyColor: '#4a5568', bodyFont: {size: 14, weight: 'bold'},
-      padding: 12, cornerRadius: 8,
-      callbacks: { 
-        title: (items) => {
-          const chart = items[0].chart;
-          const index = items[0].dataIndex;
-          const fullTs = chart.data.fullTimestamps ? chart.data.fullTimestamps[index] : null;
-          if (fullTs) {
-            const dt = new Date(fullTs);
-            return dt.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
-          }
-          return items[0].label;
-        }
-      }
+    plugins:{ legend:{ display:false }, tooltip:{
+      backgroundColor:'#1a202c', borderColor:'#2d3748', borderWidth:1,
+      titleColor:'#e2e8f0', bodyColor:'#a0aec0', padding:10,
     }}
   }
 });
 
 function initCharts() {
-  miniSm   = new Chart(document.getElementById('mini-sm'),   chartDefaults('#4ade80', 'Soil Moisture'));
-  miniTemp = new Chart(document.getElementById('mini-temp'), chartDefaults('#f87171', 'Temperature'));
-  miniHum  = new Chart(document.getElementById('mini-hum'),  chartDefaults('#60a5fa', 'Humidity'));
-  fullSm   = new Chart(document.getElementById('chart-sm'),   {...chartDefaults('#4ade80', 'Soil Moisture %'), options: {...chartDefaults('#4ade80','').options}});
-  fullTemp = new Chart(document.getElementById('chart-temp'), {...chartDefaults('#f87171', 'Temperature °C'), options: {...chartDefaults('#f87171','').options}});
-  fullHum  = new Chart(document.getElementById('chart-hum'),  {...chartDefaults('#60a5fa', 'Humidity %'), options: {...chartDefaults('#60a5fa','').options}});
+  const bind = (id, cfg) => { const c=$(id); return c ? new Chart(c, cfg) : null; };
+  miniSm   = bind('mini-sm',   mkChartCfg('#4ade80','Soil Moisture'));
+  miniTemp = bind('mini-temp', mkChartCfg('#f87171','Temperature'));
+  miniHum  = bind('mini-hum',  mkChartCfg('#60a5fa','Humidity'));
+  fullSm   = bind('chart-sm',  mkChartCfg('#4ade80','Soil Moisture %'));
+  fullTemp = bind('chart-temp',mkChartCfg('#f87171','Temperature °C'));
+  fullHum  = bind('chart-hum', mkChartCfg('#60a5fa','Humidity %'));
 
-  fullSm.options.scales.x = { display: true, ticks: { color: '#6b8f65', maxRotation: 45, font: { size: 9, family: 'DM Mono' }, maxTicksLimit: 12 } };
-  fullTemp.options.scales.x = fullSm.options.scales.x;
-  fullHum.options.scales.x = fullSm.options.scales.x;
+  // Show x-axis on full charts
+  [fullSm, fullTemp, fullHum].forEach(c => {
+    if (!c) return;
+    c.options.scales.x = { display:true, ticks:{ color:'#718096', maxRotation:45, font:{size:9}, maxTicksLimit:12 } };
+    c.update();
+  });
 }
 
-function pushChart(chart, label, value, maxPoints=40, fullTs=null) {
+function pushChart(chart, label, value, maxPts=40, ts=null) {
+  if (!chart) return;
   chart.data.labels.push(label);
   chart.data.datasets[0].data.push(value);
-  if (!chart.data.fullTimestamps) chart.data.fullTimestamps = [];
-  chart.data.fullTimestamps.push(fullTs);
-
-  if (chart.data.labels.length > maxPoints) {
+  if (!chart.data.fullTimestamps) chart.data.fullTimestamps=[];
+  chart.data.fullTimestamps.push(ts);
+  if (chart.data.labels.length > maxPts) {
     chart.data.labels.shift();
     chart.data.datasets[0].data.shift();
     chart.data.fullTimestamps.shift();
@@ -96,666 +87,345 @@ function pushChart(chart, label, value, maxPoints=40, fullTs=null) {
 
 function loadHistoryToCharts(history) {
   [fullSm, fullTemp, fullHum].forEach(c => {
-    c.data.labels = []; 
-    c.data.datasets[0].data = []; 
-    c.data.fullTimestamps = [];
+    if (!c) return;
+    c.data.labels=[]; c.data.datasets[0].data=[]; c.data.fullTimestamps=[];
   });
-  
   history.forEach(r => {
-    let lbl = r.timestamp.substring(11,16); 
-    // If range is > 24h (Last 7d), include date in label
+    let lbl = r.timestamp.substring(11,16);
     if (state.range > 24) {
       const dt = new Date(r.timestamp);
-      lbl = dt.toLocaleDateString('en-GB', { day:'2-digit', month:'short' }) + ' ' + lbl;
+      lbl = dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}) + ' ' + lbl;
     }
-    
-    fullSm.data.labels.push(lbl);
-    fullSm.data.datasets[0].data.push(r.soil_moisture);
-    fullSm.data.fullTimestamps.push(r.timestamp);
-
-    fullTemp.data.labels.push(lbl);
-    fullTemp.data.datasets[0].data.push(r.temperature);
-    fullTemp.data.fullTimestamps.push(r.timestamp);
-
-    fullHum.data.labels.push(lbl);
-    fullHum.data.datasets[0].data.push(r.humidity);
-    fullHum.data.fullTimestamps.push(r.timestamp);
+    if (fullSm)   { fullSm.data.labels.push(lbl); fullSm.data.datasets[0].data.push(r.soil_moisture); fullSm.data.fullTimestamps.push(r.timestamp); }
+    if (fullTemp) { fullTemp.data.labels.push(lbl); fullTemp.data.datasets[0].data.push(r.temperature); fullTemp.data.fullTimestamps.push(r.timestamp); }
+    if (fullHum)  { fullHum.data.labels.push(lbl); fullHum.data.datasets[0].data.push(r.humidity); fullHum.data.fullTimestamps.push(r.timestamp); }
   });
-  fullSm.update(); fullTemp.update(); fullHum.update();
+  if (fullSm) fullSm.update();
+  if (fullTemp) fullTemp.update();
+  if (fullHum) fullHum.update();
 }
 
-// ─── Fetch Data ────────────────────────────────────
+// ─── Sensor fetch ────────────────────────────────────
 async function fetchSensor() {
   try {
     const r = await fetch(BASE + '/api/sensor');
-    if (!r.ok) throw new Error("API error");
+    if (!r.ok) throw new Error('API error');
     const d = await r.json();
     state.sensor = d;
-    
-    document.getElementById('loading-overlay').style.opacity = '0';
-    setTimeout(() => document.getElementById('loading-overlay').style.display = 'none', 300);
-    document.getElementById('error-banner').style.display = 'none';
+
+    const overlay = $('loading-overlay');
+    if (overlay) { overlay.style.opacity='0'; setTimeout(()=>overlay.style.display='none',300); }
+    const err = $('error-banner');
+    if (err) err.style.display='none';
 
     updateSensorUI(d);
-    const lbl = new Date().toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-    lastFetchTime = new Date();
-    const smVal = d.connected ? d.soil_moisture : 0;
-    const tempVal = d.connected ? d.temperature : 0;
-    const humVal = d.connected ? d.humidity : 0;
-    
-    const fullTs = d.timestamp || new Date().toISOString();
-    pushChart(miniSm,   lbl, smVal, 40, fullTs);
-    pushChart(miniTemp, lbl, tempVal, 40, fullTs);
-    pushChart(miniHum,  lbl, humVal, 40, fullTs);
-    document.getElementById('mini-sm-val').textContent   = smVal.toFixed(1) + '%';
-    document.getElementById('mini-temp-val').textContent = tempVal.toFixed(1) + '°C';
-    document.getElementById('mini-hum-val').textContent  = humVal.toFixed(1) + '%';
-    document.getElementById('last-update').textContent   = 'Last update: ' + lbl;
-    const dot = document.getElementById('serial-dot');
-    document.getElementById('serial-label').textContent = d.connected ? 'Sensor Active' : 'Sensor Inactive';
-    dot.classList.toggle('ok', d.connected);
+    lastFetchTime = Date.now();
+    const lbl = new Date().toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const ts  = d.timestamp || new Date().toISOString();
+    const sm   = d.connected ? d.soil_moisture : 0;
+    const temp = d.connected ? d.temperature   : 0;
+    const hum  = d.connected ? d.humidity      : 0;
+
+    pushChart(miniSm,   lbl, sm,   40, ts);
+    pushChart(miniTemp, lbl, temp, 40, ts);
+    pushChart(miniHum,  lbl, hum,  40, ts);
+
+    set('mini-sm-val',   sm.toFixed(1)   + '%');
+    set('mini-temp-val', temp.toFixed(1) + '°C');
+    set('mini-hum-val',  hum.toFixed(1)  + '%');
+    set('last-update', 'Last update: ' + lbl);
+
+    const dot   = $('serial-dot');
+    const label = $('serial-label');
+    if (label) label.textContent = d.connected ? 'Sensor Active' : 'Sensor Inactive';
+    if (dot)   dot.classList.toggle('ok', d.connected);
   } catch(e) {
     console.error('sensor fetch:', e);
-    document.getElementById('error-banner').style.display = 'flex';
-    document.getElementById('loading-overlay').style.display = 'none';
+    const err = $('error-banner');
+    if (err) err.style.display='flex';
+    const overlay = $('loading-overlay');
+    if (overlay) overlay.style.display='none';
   }
 }
 
 function updateSensorUI(d) {
-  const minSM = state.thresholds.soil_moisture.min;
-  const maxSM = state.thresholds.soil_moisture.max;
-  const minTemp = state.thresholds.temperature.min;
-  const maxTemp = state.thresholds.temperature.max;
-  const minHum = state.thresholds.humidity.min;
-  const maxHum = state.thresholds.humidity.max;
+  const th = state.thresholds;
+  set('sm-opt-label',   `Opt: ${th.soil_moisture.min}-${th.soil_moisture.max}%`);
+  set('temp-opt-label', `Opt: ${th.temperature.min}-${th.temperature.max}°`);
+  set('hum-opt-label',  `Opt: ${th.humidity.min}-${th.humidity.max}%`);
 
-  document.getElementById('sm-opt-label').textContent = `Opt: ${minSM}-${maxSM}%`;
-  document.getElementById('temp-opt-label').textContent = `Opt: ${minTemp}-${maxTemp}°`;
-  document.getElementById('hum-opt-label').textContent = `Opt: ${minHum}-${maxHum}%`;
+  const sm   = d.connected ? d.soil_moisture : 0;
+  const temp = d.connected ? d.temperature   : 0;
+  const hum  = d.connected ? d.humidity      : 0;
 
-  const smVal = d.connected ? d.soil_moisture : 0;
-  const tempVal = d.connected ? d.temperature : 0;
-  const humVal = d.connected ? d.humidity : 0;
-
-  setMetric('sm',   smVal, '%',  'val-sm',   minSM, maxSM,  100, 'bar-sm',   'badge-sm', 'card-sm');
-  setMetric('temp', tempVal,   '°C', 'val-temp', minTemp, maxTemp,  50,  'bar-temp', 'badge-temp', 'card-temp');
-  setMetric('hum',  humVal,      '%',  'val-hum',  minHum, maxHum,  100, 'bar-hum',  'badge-hum', 'card-hum');
-
-  if (d.connected) {
-    if (d.soil_moisture < minSM) showAlert('Low Soil Moisture', `Value is ${d.soil_moisture}%, below minimum ${minSM}%.`, 'warning');
-    if (d.temperature < minTemp) showAlert('Low Temperature', `Value is ${d.temperature}°C, below minimum ${minTemp}°C.`, 'warning');
-    if (d.humidity < minHum) showAlert('Low Humidity', `Value is ${d.humidity}%, below minimum ${minHum}%.`, 'warning');
-  }
+  setMetric('sm',   sm,   '%',  'val-sm',   th.soil_moisture.min, th.soil_moisture.max, 100, 'bar-sm',   'badge-sm',   'card-sm');
+  setMetric('temp', temp, '°C', 'val-temp', th.temperature.min,   th.temperature.max,    50, 'bar-temp', 'badge-temp', 'card-temp');
+  setMetric('hum',  hum,  '%',  'val-hum',  th.humidity.min,      th.humidity.max,      100, 'bar-hum',  'badge-hum',  'card-hum');
 }
 
-function setMetric(key, val, unit, valId, min, max, scale, barId, badgeId, cardId) {
-  const el = document.getElementById(valId);
-  el.innerHTML = val.toFixed(1) + `<span class="metric-unit">${unit}</span>`;
-  const pct = Math.min(100, (val / scale) * 100);
-  const bar = document.getElementById(barId);
-  bar.style.width = pct + '%';
-  const badge = document.getElementById(badgeId);
-  const card = document.getElementById(cardId);
-  
+function setMetric(_key, val, unit, valId, min, max, scale, barId, badgeId, cardId) {
+  const el = $(valId);
+  if (el) el.innerHTML = val.toFixed(1) + `<span class="metric-unit">${unit}</span>`;
+  const pct  = Math.min(100, (val/scale)*100);
+  const bar  = $(barId);
+  const badge = $(badgeId);
+  const card  = $(cardId);
+  if (bar) bar.style.width = pct + '%';
   if (val < min) {
-    badge.className = 'metric-badge badge-warn'; badge.textContent = '● LOW';
-    bar.style.backgroundColor = 'var(--amber)'; card.style.setProperty('--card-accent', 'var(--amber)');
+    if (badge) { badge.className='metric-badge badge-warn'; badge.textContent='● LOW'; }
+    if (bar)   bar.style.backgroundColor='var(--amber)';
+    if (card)  card.style.setProperty('--card-accent','var(--amber)');
   } else if (val > max) {
-    badge.className = 'metric-badge badge-danger'; badge.textContent = '● HIGH';
-    bar.style.backgroundColor = 'var(--red)'; card.style.setProperty('--card-accent', 'var(--red)');
+    if (badge) { badge.className='metric-badge badge-danger'; badge.textContent='● HIGH'; }
+    if (bar)   bar.style.backgroundColor='var(--red)';
+    if (card)  card.style.setProperty('--card-accent','var(--red)');
   } else {
-    badge.className = 'metric-badge badge-ok'; badge.textContent = '● OPTIMAL';
-    bar.style.backgroundColor = 'var(--green)'; card.style.setProperty('--card-accent', 'var(--green)');
+    if (badge) { badge.className='metric-badge badge-ok'; badge.textContent='● OPTIMAL'; }
+    if (bar)   bar.style.backgroundColor='var(--green)';
+    if (card)  card.style.setProperty('--card-accent','var(--green)');
   }
 }
+
+// ─── Weather ─────────────────────────────────────────
+const WMO = {0:{i:'☀️',d:'Clear sky'},1:{i:'🌤️',d:'Mainly clear'},2:{i:'⛅',d:'Partly cloudy'},3:{i:'☁️',d:'Overcast'},45:{i:'🌫️',d:'Fog'},51:{i:'🌧️',d:'Drizzle'},63:{i:'🌧️',d:'Rain'},80:{i:'🌦️',d:'Showers'},95:{i:'⛈️',d:'Thunderstorm'}};
+const wmo = code => WMO[code] || {i:'☁️',d:'Unknown'};
 
 async function fetchWeather() {
   try {
     let url = BASE + '/api/weather';
-    if (clientCoords) {
-      url += `?lat=${clientCoords.lat}&lon=${clientCoords.lon}`;
-    }
-    const r = await fetch(url);
-    const d = await r.json();
+    if (clientCoords) url += `?lat=${clientCoords.lat}&lon=${clientCoords.lon}`;
+    const d = await fetch(url).then(r=>r.json());
     state.weather = d;
     updateWeatherUI(d);
-  } catch(e) { console.error('weather fetch:', e); }
-}
-
-const WMO_CODES = {
-  0: { icon: '☀️', desc: 'Clear sky' },
-  1: { icon: '🌤️', desc: 'Mainly clear' },
-  2: { icon: '⛅', desc: 'Partly cloudy' },
-  3: { icon: '☁️', desc: 'Overcast' },
-  45: { icon: '🌫️', desc: 'Fog' },
-  48: { icon: '🌫️', desc: 'Depositing rime fog' },
-  51: { icon: '🌧️', desc: 'Drizzle: Light' },
-  53: { icon: '🌧️', desc: 'Drizzle: Moderate' },
-  55: { icon: '🌧️', desc: 'Drizzle: Dense' },
-  61: { icon: '🌧️', desc: 'Rain: Slight' },
-  63: { icon: '🌧️', desc: 'Rain: Moderate' },
-  65: { icon: '🌧️', desc: 'Rain: Heavy' },
-  71: { icon: '❄️', desc: 'Snow: Slight' },
-  73: { icon: '❄️', desc: 'Snow: Moderate' },
-  75: { icon: '❄️', desc: 'Snow: Heavy' },
-  77: { icon: '❄️', desc: 'Snow grains' },
-  80: { icon: '🌦️', desc: 'Rain showers: Slight' },
-  81: { icon: '🌦️', desc: 'Rain showers: Moderate' },
-  82: { icon: '🌦️', desc: 'Rain showers: Violent' },
-  85: { icon: '🌨️', desc: 'Snow showers: Slight' },
-  86: { icon: '🌨️', desc: 'Snow showers: Heavy' },
-  95: { icon: '⛈️', desc: 'Thunderstorm' },
-  96: { icon: '⛈️', desc: 'Thunderstorm with slight hail' },
-  99: { icon: '⛈️', desc: 'Thunderstorm with heavy hail' },
-};
-
-function getWmo(code) {
-  return WMO_CODES[code] || { icon: '☁️', desc: 'Unknown' };
+  } catch(e) { console.error('weather:', e); }
 }
 
 function updateWeatherUI(d) {
-  const c = d.current;
-  if (!c) return;
-  
-  const wmo = getWmo(c.weather_code);
-  
-  document.getElementById('w-city').textContent    = d.city || '—';
-  document.getElementById('w-temp').textContent    = c.temp?.toFixed(1) || '—';
-  document.getElementById('w-icon').textContent    = wmo.icon;
-  document.getElementById('w-desc').textContent    = wmo.desc;
-  document.getElementById('w-feels').textContent   = c.feels_like?.toFixed(1) || '—';
-  
-  document.getElementById('w-wind').textContent    = (c.wind_speed || 0) + ' km/h';
-  document.getElementById('w-hum').textContent     = (c.humidity || 0) + '%';
-  document.getElementById('w-press').textContent   = (c.pressure || 0) + ' hPa';
-  document.getElementById('w-cloud').textContent   = (c.cloud_cover || 0) + '%';
-  document.getElementById('w-uv').textContent      = (c.uv_index || 0).toFixed(1);
-  
-  const aqiBadge = document.getElementById('w-aqi-badge');
-  const aqi = c.aqi || 0;
-  aqiBadge.textContent = aqi + ' US AQI';
-  aqiBadge.className = 'aqi-badge';
-  if (aqi <= 50) aqiBadge.classList.add('aqi-good');
-  else if (aqi <= 100) aqiBadge.classList.add('aqi-mod');
-  else aqiBadge.classList.add('aqi-poor');
-
-  document.getElementById('weather-fetched').textContent = 'Fetched at ' + (d.fetched_at || '').substring(11, 16) + (d.mock ? ' (cached)' : '');
-
-  // Severe Weather Alerts
-  const alertContainer = document.getElementById('severe-alert-container');
-  if (alertContainer) {
-    alertContainer.innerHTML = '';
-    if (d.alerts && d.alerts.length > 0) {
-      d.alerts.forEach(a => {
-        const bg = a.type === 'danger' ? 'var(--red)' : 'var(--amber)';
-        const color = a.type === 'danger' ? '#fff' : '#000';
-        alertContainer.innerHTML += `
-          <div style="background:${bg}; color:${color}; padding:12px 16px; border-radius:8px; margin-bottom:16px; font-weight:600; display:flex; align-items:center; gap:12px; box-shadow:0 4px 12px rgba(0,0,0,0.15);">
-            <span style="font-size:20px;">⚠️</span>
-            <span>${a.message}</span>
-          </div>
-        `;
-      });
-    }
+  const c = d.current; if (!c) return;
+  const w = wmo(c.weather_code);
+  set('w-city', d.city||'—'); set('w-temp', c.temp?.toFixed(1)||'—');
+  set('w-icon', w.i); set('w-desc', w.d); set('w-feels', c.feels_like?.toFixed(1)||'—');
+  set('w-wind', (c.wind_speed||0)+' km/h'); set('w-hum', (c.humidity||0)+'%');
+  set('w-press', (c.pressure||0)+' hPa'); set('w-cloud', (c.cloud_cover||0)+'%');
+  set('w-uv', (c.uv_index||0).toFixed(1));
+  set('weather-fetched', 'Fetched at '+(d.fetched_at||'').substring(11,16)+(d.mock?' (cached)':''));
+  const aqiEl = $('w-aqi-badge');
+  if (aqiEl) {
+    const aqi=c.aqi||0; aqiEl.textContent=aqi+' US AQI';
+    aqiEl.className='aqi-badge '+(aqi<=50?'aqi-good':aqi<=100?'aqi-mod':'aqi-poor');
   }
-
-  // Hourly
-  const hScroll = document.getElementById('hourly-scroll');
-  hScroll.innerHTML = '';
-  (d.hourly || []).forEach(h => {
-    const time = h.time ? h.time.substring(11,16) : '—';
-    const hwmo = getWmo(h.weather_code);
-    hScroll.innerHTML += `<div class="w-hourly-item">
-      <div class="w-hourly-time">${time}</div>
-      <div class="w-hourly-icon">${hwmo.icon}</div>
-      <div class="w-hourly-temp">${h.temp?.toFixed(0)}°</div>
-      <div class="w-hourly-pop">💧 ${h.precip_prob}%</div>
-    </div>`;
-  });
-
-  // Daily
-  const dList = document.getElementById('daily-list');
-  dList.innerHTML = '';
-  (d.daily || []).forEach(day => {
-    const date = new Date(day.date);
-    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-    const dwmo = getWmo(day.weather_code);
-    dList.innerHTML += `<div class="w-daily-item">
-      <div class="w-daily-day">${dayName}</div>
-      <div class="w-daily-icon">${dwmo.icon}</div>
-      <div class="w-daily-temps">
-        <span class="w-daily-max">${day.temp_max?.toFixed(0)}°</span>
-        <span class="w-daily-min">${day.temp_min?.toFixed(0)}°</span>
-      </div>
-    </div>`;
-  });
-  
-  // Sun & Moon
-  if (d.daily && d.daily.length > 0) {
-    const today = d.daily[0];
-    document.getElementById('w-sunrise').textContent = today.sunrise ? today.sunrise.substring(11,16) : '—';
-    document.getElementById('w-sunset').textContent = today.sunset ? today.sunset.substring(11,16) : '—';
-  }
+  const ac = $('severe-alert-container');
+  if (ac) { ac.innerHTML=''; (d.alerts||[]).forEach(a=>{const bg=a.type==='danger'?'var(--red)':'var(--amber)';ac.innerHTML+=`<div style="background:${bg};color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:12px;font-weight:600;">⚠️ ${a.message}</div>`;});}
+  const hs = $('hourly-scroll');
+  if (hs) { hs.innerHTML=''; (d.hourly||[]).forEach(h=>{const t=h.time?.substring(11,16)||'—';const hw=wmo(h.weather_code);hs.innerHTML+=`<div class="w-hourly-item"><div class="w-hourly-time">${t}</div><div class="w-hourly-icon">${hw.i}</div><div class="w-hourly-temp">${h.temp?.toFixed(0)||'—'}°</div><div class="w-hourly-pop">💧${h.precip_prob||0}%</div></div>`;});}
+  const dl = $('daily-list');
+  if (dl) { dl.innerHTML=''; (d.daily||[]).forEach(day=>{const nm=new Date(day.date).toLocaleDateString('en-US',{weekday:'short'});const dw=wmo(day.weather_code);dl.innerHTML+=`<div class="w-daily-item"><div class="w-daily-day">${nm}</div><div class="w-daily-icon">${dw.i}</div><div class="w-daily-temps"><span class="w-daily-max">${day.temp_max?.toFixed(0)||'—'}°</span><span class="w-daily-min">${day.temp_min?.toFixed(0)||'—'}°</span></div></div>`;});}
+  if (d.daily?.length) { set('w-sunrise',d.daily[0].sunrise?.substring(11,16)||'—'); set('w-sunset',d.daily[0].sunset?.substring(11,16)||'—'); }
 }
 
+// ─── Insights ────────────────────────────────────────
 async function fetchInsights() {
-  const loader = document.getElementById('fusion-loader');
-  const container = document.getElementById('full-insights');
-  
-  if (state.currentView === 'insights') {
-    if (loader) loader.style.display = 'block';
-    if (container) container.style.opacity = '0.3';
-  }
-
+  const loader = $('fusion-loader');
+  const cont   = $('full-insights');
+  if (loader) loader.style.display='block';
+  if (cont)   cont.style.opacity='0.3';
   try {
     let url = BASE + '/api/insights';
-    if (clientCoords) {
-      url += `?lat=${clientCoords.lat}&lon=${clientCoords.lon}`;
-    }
-    const r = await fetch(url);
-    if (!r.ok) throw new Error("Insights API unreachable");
+    if (clientCoords) url += `?lat=${clientCoords.lat}&lon=${clientCoords.lon}`;
+    const r = await fetch(url); if (!r.ok) throw new Error('insights');
     const d = await r.json();
     state.insights = d.insights;
-    
     renderInsights(d.insights, 'quick-insights', 3);
     renderInsights(d.insights, 'full-insights', 999);
-  } catch(e) {
-    console.error('insights fetch:', e);
-  } finally {
-    if (loader) loader.style.display = 'none';
-    if (container) container.style.opacity = '1';
+  } catch(e) { console.error('insights:', e); }
+  finally {
+    if (loader) loader.style.display='none';
+    if (cont)   cont.style.opacity='1';
   }
 }
 
-function renderInsights(insights, containerId, limit) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  el.innerHTML = insights.slice(0, limit).map(ins => `
-    <div class="insight-card ${ins.level}">
-      <div class="insight-icon">${ins.icon}</div>
-      <div>
-        <div class="insight-title">${ins.title}</div>
-        <div class="insight-msg">${ins.message}</div>
-      </div>
-    </div>`).join('');
+function renderInsights(insights, id, limit) {
+  const el = $(id); if (!el) return;
+  if (!insights || !insights.length) { el.innerHTML='<div style="font-size:13px;color:var(--text2);padding:12px 0;">No insights available yet — waiting for sensor data.</div>'; return; }
+  el.innerHTML = insights.slice(0, limit).map(ins =>
+    `<div class="insight-card ${ins.level}"><div class="insight-icon">${ins.icon}</div><div><div class="insight-title">${ins.title}</div><div class="insight-msg">${ins.message}</div></div></div>`
+  ).join('');
 }
 
+// ─── History ─────────────────────────────────────────
 async function fetchHistory() {
   try {
-    const r = await fetch(BASE + `/api/history?hours=${state.range}`);
-    const d = await r.json();
+    const d = await fetch(BASE+`/api/history?hours=${state.range}`).then(r=>r.json());
     state.history = d;
     loadHistoryToCharts(d);
   } catch(e) {}
 }
 
-// ─── Alerts ────────────────────────────────────────
-const shownAlerts = new Set();
-function showAlert(title, msg, type='warning') {
-  const key = title + type;
-  if (shownAlerts.has(key)) return;
-  shownAlerts.add(key);
-  setTimeout(() => shownAlerts.delete(key), 30000);
-  const bar = document.getElementById('alert-bar');
-  const id = 'al-' + Date.now();
-  const colors = { warning: '⚠️', danger: '🚨', success: '✅', info: 'ℹ️' };
-  bar.innerHTML += `<div class="alert-item ${type}" id="${id}">
-    <span>${colors[type]||'⚠️'}</span>
-    <div><strong>${title}</strong><br><span style="font-size:12px;color:var(--text2)">${msg}</span></div>
-    <span class="alert-close" onclick="document.getElementById('${id}').remove()">×</span>
-  </div>`;
-  setTimeout(() => document.getElementById(id)?.remove(), 8000);
-}
-
-// ─── Navigation ────────────────────────────────────
-const VIEW_TITLES = {
-  overview: '🌿 Your Field — CropGuard AI',
-  charts:   '📈 Sensor History — CropGuard AI',
-  weather:  '🌦️ Weather — CropGuard AI',
-  insights: '🧠 AI Insights — CropGuard AI',
-  reports:  '📁 Reports — CropGuard AI',
-  settings: '⚙️ Settings — CropGuard AI',
-};
-
-function showView(name) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById('view-' + name).classList.add('active');
-  document.querySelectorAll('.nav-item').forEach(n => {
-    if (n.getAttribute('onclick')?.includes(`'${name}'`)) n.classList.add('active');
-  });
-  state.currentView = name;
-  document.title = VIEW_TITLES[name] || 'CropGuard AI — AgriSense';
-  if (name === 'charts') fetchHistory();
-  if (name === 'weather') fetchWeather();
-  if (name === 'insights') fetchInsights();
-  if (name === 'settings') loadSettings();
-}
-
+// ─── Range pill ──────────────────────────────────────
 function setRange(h, el) {
   state.range = h;
-  document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
-  el.classList.add('active');
+  document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active'));
+  if (el) el.classList.add('active');
   fetchHistory();
 }
 
-// ─── Reports ───────────────────────────────────────
-function downloadCSV() {
-  const h = document.getElementById('report-hours').value;
-  window.open(BASE + `/api/export/csv?hours=${h}`);
-}
-function downloadPDF() {
-  const h = document.getElementById('report-hours').value;
-  window.open(BASE + `/api/export/pdf?hours=${h}`);
-}
+// ─── Reports ─────────────────────────────────────────
+function downloadCSV() { window.open(BASE+`/api/export/csv?hours=${$('report-hours')?.value||24}`); }
+function downloadPDF()  { window.open(BASE+`/api/export/pdf?hours=${$('report-hours')?.value||24}`); }
 function quickExportCSV() {
-  const rows = [['Timestamp', 'Soil Moisture %', 'Temperature C', 'Humidity %']];
-  rows.push([new Date().toISOString(), state.sensor.soil_moisture, state.sensor.temperature, state.sensor.humidity]);
-  const csv = rows.map(r => r.join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = 'agri_quick_export.csv'; a.click();
+  const s = state.sensor;
+  const csv = `Timestamp,Soil Moisture %,Temperature C,Humidity %\n${new Date().toISOString()},${s.soil_moisture},${s.temperature},${s.humidity}`;
+  const a = document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='agri_quick_export.csv'; a.click();
 }
 
-// ─── Settings ──────────────────────────────────────
+// ─── Settings / Alerts (shared) ──────────────────────
 async function loadSettings() {
   try {
     const [th, cal] = await Promise.all([
-      fetch(BASE + '/api/thresholds').then(r => r.json()),
-      fetch(BASE + '/api/calibration').then(r => r.json())
+      fetch(BASE+'/api/thresholds').then(r=>r.json()),
+      fetch(BASE+'/api/calibration').then(r=>r.json())
     ]);
-    document.getElementById('th-sm-min').value = th.soil_moisture?.min || 30;
-    document.getElementById('th-sm-max').value = th.soil_moisture?.max || 80;
-    document.getElementById('th-temp-min').value = th.temperature?.min || 10;
-    document.getElementById('th-temp-max').value = th.temperature?.max || 35;
-    document.getElementById('th-hum-min').value = th.humidity?.min || 40;
-    document.getElementById('th-hum-max').value = th.humidity?.max || 80;
-    document.getElementById('cal-sm').value = cal.soil_moisture || 0;
-    document.getElementById('cal-temp').value = cal.temperature || 0;
-    document.getElementById('cal-hum').value = cal.humidity || 0;
-    
-    // We don't get the keys back for security, but we can set placeholders
-    document.getElementById('cfg-city').value = state.weather?.city || '';
+    const sv = (id,v)=>{ const e=$(id); if(e) e.value=v; };
+    sv('th-sm-min', th.soil_moisture?.min||30); sv('th-sm-max', th.soil_moisture?.max||80);
+    sv('th-temp-min', th.temperature?.min||10); sv('th-temp-max', th.temperature?.max||35);
+    sv('th-hum-min', th.humidity?.min||40);     sv('th-hum-max', th.humidity?.max||80);
+    sv('cal-sm', cal.soil_moisture||0); sv('cal-temp', cal.temperature||0); sv('cal-hum', cal.humidity||0);
+    sv('cfg-city', state.weather?.city||'');
   } catch(e) {}
 }
-
 async function saveThresholds() {
-  const data = {
-    soil_moisture: { min: +document.getElementById('th-sm-min').value, max: +document.getElementById('th-sm-max').value },
-    temperature:   { min: +document.getElementById('th-temp-min').value, max: +document.getElementById('th-temp-max').value },
-    humidity:      { min: +document.getElementById('th-hum-min').value, max: +document.getElementById('th-hum-max').value }
-  };
-  await fetch(BASE + '/api/thresholds', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
-  showAlert('Thresholds Saved', 'Alert thresholds have been updated.', 'success');
+  const gv = id => +$(id)?.value;
+  const data = { soil_moisture:{min:gv('th-sm-min'),max:gv('th-sm-max')}, temperature:{min:gv('th-temp-min'),max:gv('th-temp-max')}, humidity:{min:gv('th-hum-min'),max:gv('th-hum-max')} };
+  await fetch(BASE+'/api/thresholds',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  showAlert('Thresholds Saved','Alert thresholds updated.','success');
 }
-
 async function saveCalibration() {
-  const data = {
-    soil_moisture: +document.getElementById('cal-sm').value,
-    temperature:   +document.getElementById('cal-temp').value,
-    humidity:      +document.getElementById('cal-hum').value
-  };
-  await fetch(BASE + '/api/calibration', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
-  showAlert('Calibration Applied', 'Sensor offsets have been updated.', 'success');
+  const gv = id => +$(id)?.value;
+  const data = { soil_moisture:gv('cal-sm'), temperature:gv('cal-temp'), humidity:gv('cal-hum') };
+  await fetch(BASE+'/api/calibration',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  showAlert('Calibration Applied','Sensor offsets updated.','success');
 }
-
-function resetCalibration() {
-  ['cal-sm','cal-temp','cal-hum'].forEach(id => document.getElementById(id).value = 0);
-  saveCalibration();
-}
-
+function resetCalibration() { ['cal-sm','cal-temp','cal-hum'].forEach(id=>{const e=$(id);if(e)e.value=0;}); saveCalibration(); }
 async function saveWeatherConfig() {
-  const city = document.getElementById('cfg-city').value;
-  
-  const payload = {};
-  if (city) payload.city = city;
+  const city = $('cfg-city')?.value?.trim();
+  if (!city) { showAlert('Error','Enter a city name.','danger'); return; }
+  await fetch(BASE+'/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({city})});
+  showAlert('Saved','Configuration updated.','success');
+  fetchWeather();
+}
+// Preferences page save wrappers
+async function saveWeather() { await saveWeatherConfig(); }
 
-  if (Object.keys(payload).length === 0) {
-    showAlert('Error', 'Please enter at least one config value.', 'danger');
+// ─── Alerts ──────────────────────────────────────────
+const shownAlerts = new Set();
+function showAlert(title, msg, type='warning') {
+  const key = title+type;
+  if (shownAlerts.has(key)) return;
+  shownAlerts.add(key); setTimeout(()=>shownAlerts.delete(key), 30000);
+  const bar = $('alert-bar'); if (!bar) { if (type==='success'||type==='info') { if(typeof showToast==='function') showToast(title+': '+msg, type); } return; }
+  const id = 'al-'+Date.now();
+  const icons = {warning:'⚠️',danger:'🚨',success:'✅',info:'ℹ️'};
+  bar.innerHTML += `<div class="alert-item ${type}" id="${id}"><span>${icons[type]||'⚠️'}</span><div><strong>${title}</strong><br><span style="font-size:12px;color:var(--text2)">${msg}</span></div><span class="alert-close" onclick="document.getElementById('${id}').remove()">×</span></div>`;
+  setTimeout(()=>$(id)?.remove(), 8000);
+}
+
+// ─── Geolocation ──────────────────────────────────────
+function getClientGeolocation() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(pos=>{
+    clientCoords={lat:pos.coords.latitude,lon:pos.coords.longitude};
+    fetchWeather(); fetchInsights();
+  }, ()=>{});
+}
+
+// ─── USB Serial ───────────────────────────────────────
+let serialPort=null, serialReader=null, serialBuf='';
+
+function initUSBSerialButton() {
+  const btn=$('btn-connect-usb'); if(!btn) return;
+  if (!('serial' in navigator)) {
+    btn.style.opacity='0.5'; btn.style.cursor='not-allowed';
+    btn.title='Web Serial not supported — use Chrome/Edge';
+    btn.addEventListener('click',()=>showAlert('Web Serial Unsupported','Use Google Chrome or Edge.','danger'));
     return;
   }
-  
-  await fetch(BASE + '/api/config', { 
-    method: 'POST', 
-    headers: {'Content-Type':'application/json'}, 
-    body: JSON.stringify(payload) 
-  });
-  
-  showAlert('Settings Saved', 'Configuration updated successfully.', 'success');
-  if (city) fetchWeather();
+  btn.addEventListener('click',()=>serialPort ? disconnectUSBSerial() : connectUSBSerial());
 }
 
-function toggleTheme() {
-  const html = document.documentElement;
-  html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+async function connectUSBSerial() {
+  const btn=$('btn-connect-usb');
+  try {
+    serialPort=await navigator.serial.requestPort({filters:[{usbVendorId:0x2341},{usbVendorId:0x1A86},{usbVendorId:0x10C4},{usbVendorId:0x0403}]});
+    await serialPort.open({baudRate:9600});
+    if(btn){btn.style.background='var(--green)';btn.style.color='#fff';btn.textContent='🔌 Connected';}
+    showAlert('USB Connected','Serial link established!','success');
+    const dec=new TextDecoderStream();
+    serialPort.readable.pipeTo(dec.writable);
+    serialReader=dec.readable.getReader();
+    readSerial();
+  } catch(e) { showAlert('USB Failed','Could not open port.','danger'); disconnectUSBSerial(); }
 }
 
-// ─── Clock ─────────────────────────────────────────
-function updateClock() {
-  document.getElementById('time-display').textContent = new Date().toLocaleTimeString();
+async function disconnectUSBSerial() {
+  if(serialReader){try{await serialReader.cancel();}catch(e){}serialReader=null;}
+  if(serialPort){try{await serialPort.close();}catch(e){}serialPort=null;}
+  const btn=$('btn-connect-usb');
+  if(btn){btn.style.background='';btn.style.color='var(--green)';btn.textContent='🔌 Connect USB Sensor';}
+  showAlert('USB Disconnected','Sensor disconnected.','info');
 }
 
-// ─── Init ──────────────────────────────────────────
+async function readSerial() {
+  try {
+    while(serialReader&&serialPort){
+      const{value,done}=await serialReader.read();
+      if(done)break;
+      if(value){
+        serialBuf+=value;
+        let idx;
+        while((idx=serialBuf.indexOf('\n'))!==-1){
+          const line=serialBuf.substring(0,idx).trim();
+          serialBuf=serialBuf.substring(idx+1);
+          if(line) handleLine(line);
+        }
+      }
+    }
+  } catch(e){disconnectUSBSerial();}
+}
+
+function handleLine(line) {
+  try {
+    const d=JSON.parse(line);
+    if(d.temperature===undefined||d.humidity===undefined||d.soil_moisture===undefined)return;
+    state.sensor={soil_moisture:+d.soil_moisture,temperature:+d.temperature,humidity:+d.humidity,timestamp:new Date().toISOString(),connected:true};
+    updateSensorUI(state.sensor);
+    const lbl=new Date().toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    pushChart(miniSm,lbl,state.sensor.soil_moisture,40,state.sensor.timestamp);
+    pushChart(miniTemp,lbl,state.sensor.temperature,40,state.sensor.timestamp);
+    pushChart(miniHum,lbl,state.sensor.humidity,40,state.sensor.timestamp);
+    set('mini-sm-val',state.sensor.soil_moisture.toFixed(1)+'%');
+    set('mini-temp-val',state.sensor.temperature.toFixed(1)+'°C');
+    set('mini-hum-val',state.sensor.humidity.toFixed(1)+'%');
+    set('last-update',`USB: ${d.device_id||'device'} (${lbl})`);
+    // sync to cloud
+    fetch(BASE+'/api/sensor/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:d.device_id||'usb_device',soil_moisture:state.sensor.soil_moisture,temperature:state.sensor.temperature,humidity:state.sensor.humidity})}).catch(()=>{});
+  } catch(e){}
+}
+
+// ─── Clock ───────────────────────────────────────────
+function updateClock() { set('time-display', new Date().toLocaleTimeString()); }
+
+// ─── Init ────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   initCharts();
   getClientGeolocation();
   fetchSensor();
   fetchWeather();
   fetchInsights();
-  setInterval(fetchSensor, 2000);
-  setInterval(fetchWeather, 300000);   // every 5 min
-  setInterval(fetchInsights, 10000);
-  setInterval(updateClock, 1000);
+  setInterval(fetchSensor,  2000);
+  setInterval(fetchWeather, 300000);
+  setInterval(fetchInsights, 30000);
+  setInterval(updateClock,  1000);
   updateClock();
-  
   initUSBSerialButton();
+  loadSettings();
 });
-
-// ─── Dynamic Client Geolocation & Weather ───────────
-let clientCoords = null;
-
-function getClientGeolocation() {
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        clientCoords = {
-          lat: position.coords.latitude,
-          lon: position.coords.longitude
-        };
-        console.log(`📡 Dynamic GPS Location Obtained: Lat ${clientCoords.lat}, Lon ${clientCoords.lon}`);
-        fetchWeather();
-        fetchInsights();
-      },
-      (error) => {
-        console.warn("⚠️ Location access denied by client, falling back to default city.");
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  }
-}
-
-// ─── Web Serial Controller ──────────────────────────
-let serialPort = null;
-let serialReader = null;
-let serialInputBuffer = "";
-
-function initUSBSerialButton() {
-  const btn = document.getElementById('btn-connect-usb');
-  if (!btn) return;
-
-  if (!('serial' in navigator)) {
-    console.warn("❌ Web Serial API not supported in this browser.");
-    btn.style.opacity = '0.5';
-    btn.style.cursor = 'not-allowed';
-    btn.title = "Web Serial API is not supported in this browser. Use Chrome or Edge.";
-    btn.addEventListener('click', () => {
-      document.getElementById('web-serial-warning').style.display = 'flex';
-      showAlert('Web Serial Unsupported', 'Your browser does not support physical USB device connections. Please use Google Chrome, Microsoft Edge, or Opera.', 'danger');
-    });
-    return;
-  }
-
-  btn.addEventListener('click', async () => {
-    if (serialPort) {
-      disconnectUSBSerial();
-    } else {
-      connectUSBSerial();
-    }
-  });
-}
-
-async function connectUSBSerial() {
-  const btn = document.getElementById('btn-connect-usb');
-  try {
-    // Filter to only show Arduino and common USB-to-Serial chips
-    const filters = [
-      { usbVendorId: 0x2341 }, // Arduino Uno R3 / Mega
-      { usbVendorId: 0x1A86 }, // CH340 / CH341 (Arduino Clones)
-      { usbVendorId: 0x10C4 }, // CP2102
-      { usbVendorId: 0x0403 }, // FTDI
-      { usbVendorId: 0x2A03 }, // Arduino Uno (org.arduino)
-    ];
-    serialPort = await navigator.serial.requestPort({ filters });
-    await serialPort.open({ baudRate: 9600 });
-    
-    btn.style.background = 'var(--green)';
-    btn.style.color = '#fff';
-    btn.style.borderStyle = 'solid';
-    btn.innerHTML = '<span class="nav-icon">🔌</span> Connected';
-    
-    showAlert('USB Connected', 'Physical serial link established successfully!', 'success');
-    
-    document.getElementById('serial-dot').classList.add('ok');
-    document.getElementById('serial-label').textContent = 'USB Serial Active';
-
-    const decoder = new TextDecoderStream();
-    serialPort.readable.pipeTo(decoder.writable);
-    serialReader = decoder.readable.getReader();
-
-    readSerialStream();
-
-  } catch (err) {
-    console.error("USB Connection failed:", err);
-    showAlert('USB Connection Failed', 'Could not open serial port. Verify connection and try again.', 'danger');
-    disconnectUSBSerial();
-  }
-}
-
-async function disconnectUSBSerial() {
-  const btn = document.getElementById('btn-connect-usb');
-  
-  if (serialReader) {
-    try {
-      await serialReader.cancel();
-    } catch(e){}
-    serialReader = null;
-  }
-  
-  if (serialPort) {
-    try {
-      await serialPort.close();
-    } catch(e){}
-    serialPort = null;
-  }
-
-  if (btn) {
-    btn.style.background = 'rgba(45, 138, 78, 0.08)';
-    btn.style.color = 'var(--green)';
-    btn.style.borderStyle = 'dashed';
-    btn.innerHTML = '<span class="nav-icon">🔌</span> Connect USB';
-  }
-  
-  document.getElementById('serial-dot').classList.remove('ok');
-  document.getElementById('serial-label').textContent = 'Sensor';
-  showAlert('USB Disconnected', 'Sensor serial port disconnected.', 'info');
-}
-
-async function readSerialStream() {
-  try {
-    while (serialReader && serialPort) {
-      const { value, done } = await serialReader.read();
-      if (done) {
-        break;
-      }
-      if (value) {
-        serialInputBuffer += value;
-        let lineEndIdx;
-        while ((lineEndIdx = serialInputBuffer.indexOf('\n')) !== -1) {
-          const rawLine = serialInputBuffer.substring(0, lineEndIdx).trim();
-          serialInputBuffer = serialInputBuffer.substring(lineEndIdx + 1);
-          
-          if (rawLine) {
-            handleSerialDataLine(rawLine);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error reading serial stream:", err);
-    disconnectUSBSerial();
-  }
-}
-
-function handleSerialDataLine(line) {
-  try {
-    const data = JSON.parse(line);
-    
-    if (data.temperature === undefined || data.humidity === undefined || data.soil_moisture === undefined) {
-      return;
-    }
-    
-    const deviceId = data.device_id || "cropguard_basic";
-    
-    state.sensor = {
-      soil_moisture: parseFloat(data.soil_moisture),
-      temperature: parseFloat(data.temperature),
-      humidity: parseFloat(data.humidity),
-      timestamp: new Date().toISOString(),
-      connected: true
-    };
-    
-    updateSensorUI(state.sensor);
-    
-    const lbl = new Date().toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-    const smVal = state.sensor.soil_moisture;
-    const tempVal = state.sensor.temperature;
-    const humVal = state.sensor.humidity;
-    
-    pushChart(miniSm,   lbl, smVal, 40, state.sensor.timestamp);
-    pushChart(miniTemp, lbl, tempVal, 40, state.sensor.timestamp);
-    pushChart(miniHum,  lbl, humVal, 40, state.sensor.timestamp);
-    
-    document.getElementById('mini-sm-val').textContent   = smVal.toFixed(1) + '%';
-    document.getElementById('mini-temp-val').textContent = tempVal.toFixed(1) + '°C';
-    document.getElementById('mini-hum-val').textContent  = humVal.toFixed(1) + '%';
-    document.getElementById('last-update').textContent   = `Connected via USB: ${deviceId} (${lbl})`;
-
-    syncSensorReadingToCloud(deviceId, state.sensor);
-
-  } catch (e) {
-  }
-}
-
-async function syncSensorReadingToCloud(deviceId, sensor) {
-  try {
-    const payload = {
-      device_id: deviceId,
-      soil_moisture: sensor.soil_moisture,
-      temperature: sensor.temperature,
-      humidity: sensor.humidity
-    };
-    
-    const r = await fetch(BASE + '/api/sensor/upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    
-    if (!r.ok) {
-      console.warn("Failed to sync sensor reading to database:", await r.text());
-    }
-  } catch (e) {
-    console.error("Network error syncing sensor reading:", e);
-  }
-}
-

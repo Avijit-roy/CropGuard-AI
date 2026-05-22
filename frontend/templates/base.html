@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}CropGuard AI{% endblock %}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+  {% block head %}{% endblock %}
+</head>
+<body class="app-body">
+
+  <div class="app-shell">
+
+    <!-- ── Sidebar ─────────────────────────────────── -->
+    <nav class="app-sidebar" id="app-sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-icon">🌿</span>
+        <span class="brand-name">CropGuard<span class="brand-ai">AI</span></span>
+      </div>
+
+      <div class="sidebar-section-label">MONITOR</div>
+      <a href="/soil" class="nav-link {% if active_page == 'soil' %}active{% endif %}" id="nav-soil">
+        <span class="nav-icon">🌱</span><span class="nav-text">Soil Monitor</span>
+      </a>
+      <a href="/disease" class="nav-link {% if active_page == 'disease' %}active{% endif %}" id="nav-disease">
+        <span class="nav-icon">🔬</span><span class="nav-text">Disease Detection</span>
+      </a>
+
+      <div class="sidebar-section-label">DATA</div>
+      <a href="/history" class="nav-link {% if active_page == 'history' %}active{% endif %}" id="nav-history">
+        <span class="nav-icon">📄</span><span class="nav-text">History</span>
+      </a>
+
+      <div class="sidebar-section-label">SETTINGS</div>
+      <a href="/preferences" class="nav-link {% if active_page == 'preferences' %}active{% endif %}" id="nav-prefs">
+        <span class="nav-icon">⚙️</span><span class="nav-text">Preferences</span>
+      </a>
+
+      <div class="sidebar-footer">
+        <span class="sidebar-version">CropGuard AI v2.0</span>
+      </div>
+    </nav>
+
+    <!-- ── Main Content ───────────────────────────── -->
+    <div class="app-main">
+      <!-- Topbar -->
+      <header class="app-topbar">
+        <div class="topbar-title">{% block page_title %}CropGuard AI{% endblock %}</div>
+        <div class="topbar-right">
+          <span class="pulse-live" id="live-dot"></span>
+          <span id="time-display" class="topbar-time">--:--:--</span>
+          <div class="status-badge">
+            <div class="status-dot" id="api-dot"></div>
+            <span id="api-label">Connecting…</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Page Content -->
+      <div class="app-content">
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Flash Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // Clock
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('time-display').textContent =
+        now.toLocaleTimeString('en-IN', {hour12: false});
+    }
+    setInterval(updateClock, 1000); updateClock();
+
+    // Toast helper
+    function showToast(msg, type='success') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast show toast-' + type;
+      setTimeout(() => t.className = 'toast', 3000);
+    }
+
+    // Sensor heartbeat — green=connected, orange=inactive, red=offline
+    async function checkApi() {
+      const dot   = document.getElementById('api-dot');
+      const label = document.getElementById('api-label');
+      try {
+        const r = await fetch('/api/sensor', {signal: AbortSignal.timeout(3000)});
+        if (!r.ok) {
+          dot.className   = 'status-dot dot-warn';
+          label.textContent = 'API Error';
+          return;
+        }
+        const d = await r.json();
+        if (d.connected) {
+          dot.className   = 'status-dot dot-ok';
+          label.textContent = 'Online';
+        } else {
+          dot.className   = 'status-dot dot-warn';
+          label.textContent = 'Sensor Inactive';
+        }
+      } catch {
+        dot.className   = 'status-dot dot-err';
+        label.textContent = 'Offline';
+      }
+    }
+    checkApi(); setInterval(checkApi, 10000);
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

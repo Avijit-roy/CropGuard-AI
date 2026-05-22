@@ -1,0 +1,172 @@
+Redesign and apply a consistent aesthetic color grading, typography system, and visual language across the entire "CropGuard AI – Smart Crop Disease and Soil Monitoring System".
+
+Overall style:
+- Premium AI agriculture dashboard
+- Modern, clean, futuristic precision-farming aesthetic
+- Blend natural farming elements with intelligent technology
+- Calm and trustworthy appearance
+- Consistent visual hierarchy
+- Soft shadows instead of harsh contrasts
+- Smooth transitions and micro animations
+- Glassmorphism only in small elements
+- Maintain a professional research/product look
+
+Global color grading:
+
+Primary Green:
+#1B5E20 (Deep Forest Green)
+
+Secondary Green:
+#43A047 (Healthy Crop Green)
+
+Tech Accent:
+#00ACC1 (Smart Sensor Cyan)
+
+Soil Accent:
+#8D6E63 (Earth Brown)
+
+Background:
+#F4F8F3
+
+Dark Sidebar / Navigation:
+#10281D
+
+Cards:
+#FFFFFF
+
+Secondary Card Surface:
+#F8FAF8
+
+Primary Text:
+#212121
+
+Secondary Text:
+#6B7280
+
+Borders:
+#E5E7EB
+
+Status colors:
+
+Healthy:
+#43A047
+
+Warning:
+#F9A825
+
+Critical:
+#E53935
+
+Information:
+#00ACC1
+
+Optimal:
+#4CAF50
+
+Color usage rules:
+
+- Do NOT use pure black
+- Do NOT use neon colors
+- Limit bright red only for critical alerts
+- Keep dashboard cards light and readable
+- Sidebar should remain dark
+- Active tabs should use green gradient highlight
+- Charts should use soft transparent gradients
+- Use color consistency across all pages
+
+Typography:
+
+Headings:
+Poppins Bold
+
+Sub-headings:
+Poppins SemiBold
+
+Body:
+Inter Regular
+
+Sensor values and numerical readings:
+JetBrains Mono Medium
+
+Font sizes:
+
+Main dashboard title:
+32px
+
+Section title:
+24px
+
+Card title:
+18px
+
+Body:
+14–16px
+
+Sensor values:
+36–48px bold
+
+UI component styling:
+
+Cards:
+- Border radius: 18px
+- Soft shadows:
+0 8px 30px rgba(0,0,0,0.06)
+
+Buttons:
+- Rounded pill style
+- Subtle hover animations
+- Green gradient:
+linear-gradient(135deg,#1B5E20,#43A047)
+
+Charts:
+- Smooth curved lines
+- Light area gradients
+- Minimal grid visibility
+
+Sidebar:
+- Dark forest theme
+- Active item highlighted with soft green glow
+- Icons aligned and consistent
+
+Disease Detection page:
+
+- Larger image upload card
+- AI result card with disease confidence ring
+- Better severity indicators
+- Cleaner prediction bars
+- Risk score shown as circular progress
+
+Soil Monitoring page:
+
+- Convert sensor values into premium metric cards
+- Add circular gauges
+- Use animated sensor indicators
+- Improve spacing between charts
+
+Weather page:
+
+- Glass-style weather cards
+- Modern forecast tiles
+- Weather icons with soft gradients
+- Alert banners less aggressive
+
+History page:
+
+- Modern table styling
+- Sticky headers
+- Alternating row shading
+- Smooth hover interactions
+- Better confidence progress indicators
+
+Animations:
+
+- Fade-in page loading
+- Hover elevation on cards
+- Smooth chart transitions
+- Pulse animation for live sensor status
+
+Overall feeling:
+
+"Tesla dashboard meets smart agriculture intelligence"
+
+The UI should feel intelligent, calm, premium, and technologically advanced while still representing nature and farming.

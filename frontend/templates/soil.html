@@ -1,0 +1,378 @@
+{% extends "base.html" %}
+{% block title %}Soil Monitor — CropGuard AI{% endblock %}
+{% block page_title %}🌱 Live Soil Monitor{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+/* ── In-page tab bar ── */
+.soil-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:1px solid var(--border1); padding-bottom:0; }
+.soil-tab  { padding:9px 18px; font-size:13px; font-weight:500; color:var(--text2); cursor:pointer;
+             border-bottom:2px solid transparent; transition:all .2s; border-radius:6px 6px 0 0; }
+.soil-tab:hover { color:var(--text1); background:var(--bg2); }
+.soil-tab.active { color:var(--green); border-bottom-color:var(--green); font-weight:600; }
+
+/* ── Views ── */
+.soil-view { display:none; }
+.soil-view.active { display:block; }
+
+/* ── Metric cards ── */
+.sensor-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:20px; }
+.metric-card {
+  background:var(--bg1); border:1px solid var(--border1); border-radius:12px;
+  padding:20px; position:relative; overflow:hidden;
+  border-top:3px solid var(--card-accent, var(--green));
+  transition:box-shadow .2s;
+}
+.metric-card:hover { box-shadow:0 4px 20px rgba(0,0,0,.3); }
+.metric-label { font-size:11px; font-weight:600; letter-spacing:.08em; color:var(--text2); text-transform:uppercase; margin-bottom:8px; }
+.metric-value { font-size:2.2rem; font-weight:700; color:var(--text1); line-height:1; }
+.metric-unit  { font-size:1rem; font-weight:400; color:var(--text2); margin-left:2px; }
+.metric-badge { margin-top:12px; display:inline-block; font-size:11px; padding:3px 10px; border-radius:20px; font-weight:600; }
+.badge-ok     { background:rgba(45,138,78,.15); color:var(--green); }
+.badge-warn   { background:rgba(214,158,46,.15); color:var(--amber); }
+.badge-danger { background:rgba(229,62,62,.15);  color:var(--red); }
+
+/* ── Threshold bar ── */
+.threshold-bar-track { height:6px; background:var(--bg3); border-radius:3px; overflow:hidden; margin-top:10px; }
+.threshold-bar-fill  { height:100%; border-radius:3px; transition:width .5s, background-color .3s; }
+.threshold-markers   { display:flex; justify-content:space-between; font-size:10px; color:var(--text3); margin-top:4px; }
+
+/* ── Mini chart grid ── */
+.mini-chart-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:20px; }
+.mini-chart-card { background:var(--bg1); border:1px solid var(--border1); border-radius:12px; padding:16px; }
+.mini-chart-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.mini-chart-title  { font-size:13px; font-weight:600; color:var(--text1); }
+.mini-chart-val    { font-size:12px; color:var(--text2); }
+/* Fixed height wrapper prevents vertical growth */
+.mini-chart-wrap { position:relative; height:110px; }
+
+/* ── Full chart ── */
+.full-chart-wrap { position:relative; height:220px; }
+.range-pills { display:flex; gap:8px; margin-bottom:20px; }
+.pill { padding:6px 14px; border-radius:20px; font-size:12px; cursor:pointer;
+        background:var(--bg2); color:var(--text2); border:1px solid var(--border1); transition:all .2s; }
+.pill:hover  { background:var(--bg3); color:var(--text1); }
+.pill.active { background:var(--green); color:#fff; border-color:var(--green); font-weight:600; }
+
+/* ── Insight cards ── */
+.insights-list { display:flex; flex-direction:column; gap:12px; }
+.insight-card  { display:flex; align-items:flex-start; gap:14px; padding:14px 18px;
+                 border-radius:10px; border:1px solid var(--border1); background:var(--bg1); }
+.insight-card.critical { border-color:var(--red); background:rgba(229,62,62,.06); }
+.insight-card.warning  { border-color:var(--amber); background:rgba(214,158,46,.06); }
+.insight-card.info     { border-color:#3182ce; background:rgba(49,130,206,.06); }
+.insight-card.success  { border-color:var(--green); background:rgba(45,138,78,.06); }
+.insight-icon  { font-size:22px; flex-shrink:0; margin-top:2px; }
+.insight-title { font-size:13px; font-weight:600; color:var(--text1); margin-bottom:4px; }
+.insight-msg   { font-size:12px; color:var(--text2); line-height:1.5; }
+
+/* ── Alert bar ── */
+.alert-bar { position:fixed; bottom:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:8px; max-width:360px; }
+.alert-item { display:flex; align-items:flex-start; gap:12px; padding:12px 16px;
+              border-radius:10px; background:var(--bg1); border:1px solid var(--border1);
+              box-shadow:0 4px 20px rgba(0,0,0,.4); animation:slideInUp .25s ease; }
+.alert-close { margin-left:auto; cursor:pointer; color:var(--text3); font-size:18px; line-height:1; }
+@keyframes slideInUp { from { transform:translateY(20px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+
+/* ── Weather ── */
+.w-row { display:grid; grid-template-columns:1fr 300px; gap:20px; }
+@media (max-width:860px) { .w-row { grid-template-columns:1fr; } }
+.w-card { background:var(--bg1); border:1px solid var(--border1); border-radius:12px; padding:20px; margin-bottom:16px; }
+.w-card-title { font-size:13px; font-weight:600; color:var(--text2); margin-bottom:14px; text-transform:uppercase; letter-spacing:.05em; }
+.w-curr-top   { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; }
+.w-curr-temp  { font-size:3rem; font-weight:800; color:var(--text1); }
+.w-curr-unit  { font-size:1.2rem; color:var(--text2); }
+.w-curr-icon  { font-size:2.5rem; }
+.w-curr-desc  { font-size:13px; color:var(--text2); margin-top:4px; }
+.w-curr-feels { font-size:12px; color:var(--text2); margin-top:4px; }
+.w-details-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.w-detail-item { background:var(--bg2); border-radius:8px; padding:10px; }
+.w-detail-label { font-size:10px; color:var(--text3); display:block; margin-bottom:4px; text-transform:uppercase; }
+.w-detail-val   { font-size:15px; font-weight:600; color:var(--text1); }
+.w-hourly-scroll { display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; }
+.w-hourly-item   { flex-shrink:0; text-align:center; background:var(--bg2); border-radius:10px; padding:10px 14px; min-width:68px; }
+.w-hourly-time, .w-hourly-temp, .w-hourly-pop { font-size:11px; color:var(--text2); }
+.w-hourly-icon   { font-size:20px; margin:6px 0; }
+.w-hourly-temp   { font-size:13px; font-weight:600; color:var(--text1); }
+.w-daily-list { display:flex; flex-direction:column; gap:8px; }
+.w-daily-item { display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid var(--border1); }
+.w-daily-day  { font-size:12px; color:var(--text2); width:36px; }
+.w-daily-icon { font-size:18px; }
+.w-daily-temps { margin-left:auto; display:flex; gap:10px; }
+.w-daily-max  { font-size:13px; font-weight:600; color:var(--text1); }
+.w-daily-min  { font-size:13px; color:var(--text2); }
+.w-sun-grid   { display:flex; justify-content:space-around; padding:8px 0; }
+.w-sun-item   { text-align:center; }
+.w-sun-icon   { font-size:24px; margin-bottom:4px; }
+.w-sun-time   { font-size:16px; font-weight:700; color:var(--text1); }
+.w-sun-label  { font-size:10px; color:var(--text3); text-transform:uppercase; }
+.aqi-badge    { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+.aqi-good { background:rgba(45,138,78,.2); color:var(--green); }
+.aqi-mod  { background:rgba(214,158,46,.2); color:var(--amber); }
+.aqi-poor { background:rgba(229,62,62,.2); color:var(--red); }
+
+/* ── USB connect button ── */
+#btn-connect-usb {
+  position:fixed; bottom:24px; right:24px; z-index:200;
+  background:rgba(45,138,78,.1); color:var(--green);
+  border:1px dashed var(--green); border-radius:10px; padding:10px 20px;
+  font-size:13px; font-weight:600; cursor:pointer; transition:all .2s;
+}
+#btn-connect-usb:hover { background:var(--green); color:#fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── In-page tab navigation ── -->
+<div class="soil-tabs">
+  <div class="soil-tab active" id="stab-overview" onclick="soilTab('overview', this)">🌿 Your Field</div>
+  <div class="soil-tab" id="stab-charts"   onclick="soilTab('charts', this)">📈 Sensor History</div>
+  <div class="soil-tab" id="stab-weather"  onclick="soilTab('weather', this)">🌦️ Weather</div>
+  <div class="soil-tab" id="stab-insights" onclick="soilTab('insights', this)">🧠 AI Insights</div>
+  <div class="soil-tab" id="stab-reports"  onclick="soilTab('reports', this)">📁 Reports</div>
+</div>
+
+<!-- ── Error banners ── -->
+<div id="error-banner" style="display:none;" class="alert" style="margin-bottom:12px;">
+  ⚠️ Sensor Offline: Cannot reach backend API. Showing cached data.
+</div>
+<div id="web-serial-warning" style="display:none;" class="alert alert-medium" style="margin-bottom:12px;">
+  ⚠️ Web Serial is not supported in this browser. Use Chrome / Edge for USB direct reading.
+</div>
+
+<!-- ════════════════════════════════════════
+     TAB 1 — Your Field (Overview)
+════════════════════════════════════════ -->
+<div class="soil-view active" id="sview-overview">
+
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <div>
+      <div style="font-size:18px; font-weight:700; color:var(--text1);">🌿 Live Sensor Readings</div>
+      <div id="last-update" style="font-size:12px; color:var(--text2); margin-top:2px;">Waiting for data…</div>
+    </div>
+  </div>
+
+  <!-- Metric cards -->
+  <div class="sensor-grid">
+    <div class="metric-card" style="--card-accent:#2b6cb0" id="card-sm">
+      <div class="metric-label">Soil Moisture</div>
+      <div class="metric-value" id="val-sm">—<span class="metric-unit">%</span></div>
+      <div class="threshold-bar-track"><div class="threshold-bar-fill" id="bar-sm" style="width:0%;background:#2b6cb0;"></div></div>
+      <div class="threshold-markers"><span id="sm-min-label">0%</span><span id="sm-opt-label">Opt: --</span><span id="sm-max-label">100%</span></div>
+      <div id="badge-sm" class="metric-badge badge-ok">● OPTIMAL</div>
+    </div>
+    <div class="metric-card" style="--card-accent:#e53e3e" id="card-temp">
+      <div class="metric-label">Temperature</div>
+      <div class="metric-value" id="val-temp">—<span class="metric-unit">°C</span></div>
+      <div class="threshold-bar-track"><div class="threshold-bar-fill" id="bar-temp" style="width:0%;background:#e53e3e;"></div></div>
+      <div class="threshold-markers"><span id="temp-min-label">0°</span><span id="temp-opt-label">Opt: --</span><span id="temp-max-label">50°</span></div>
+      <div id="badge-temp" class="metric-badge badge-ok">● NORMAL</div>
+    </div>
+    <div class="metric-card" style="--card-accent:#3182ce" id="card-hum">
+      <div class="metric-label">Ambient Humidity</div>
+      <div class="metric-value" id="val-hum">—<span class="metric-unit">%</span></div>
+      <div class="threshold-bar-track"><div class="threshold-bar-fill" id="bar-hum" style="width:0%;background:#3182ce;"></div></div>
+      <div class="threshold-markers"><span id="hum-min-label">0%</span><span id="hum-opt-label">Opt: --</span><span id="hum-max-label">100%</span></div>
+      <div id="badge-hum" class="metric-badge badge-ok">● NORMAL</div>
+    </div>
+  </div>
+
+  <!-- Mini Charts — FIXED HEIGHT -->
+  <div class="mini-chart-grid">
+    <div class="mini-chart-card">
+      <div class="mini-chart-header">
+        <span class="mini-chart-title">Soil Moisture</span>
+        <span class="mini-chart-val" id="mini-sm-val">—</span>
+      </div>
+      <div class="mini-chart-wrap"><canvas id="mini-sm"></canvas></div>
+    </div>
+    <div class="mini-chart-card">
+      <div class="mini-chart-header">
+        <span class="mini-chart-title">Temperature</span>
+        <span class="mini-chart-val" id="mini-temp-val">—</span>
+      </div>
+      <div class="mini-chart-wrap"><canvas id="mini-temp"></canvas></div>
+    </div>
+    <div class="mini-chart-card">
+      <div class="mini-chart-header">
+        <span class="mini-chart-title">Humidity</span>
+        <span class="mini-chart-val" id="mini-hum-val">—</span>
+      </div>
+      <div class="mini-chart-wrap"><canvas id="mini-hum"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Quick Insights -->
+  <div class="card">
+    <div class="card-title">🧠 Quick Insights</div>
+    <div class="insights-list" id="quick-insights">
+      <div style="font-size:13px; color:var(--text2); padding:12px 0;">Loading insights…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     TAB 2 — Sensor History Charts
+════════════════════════════════════════ -->
+<div class="soil-view" id="sview-charts">
+  <div style="font-size:18px; font-weight:700; color:var(--text1); margin-bottom:4px;">📈 Time-Series Charts</div>
+  <div style="font-size:13px; color:var(--text2); margin-bottom:16px;">All sensor data over selected time range</div>
+
+  <div class="range-pills">
+    <div class="pill active" onclick="setRange(1, this)">Last 1h</div>
+    <div class="pill" onclick="setRange(6, this)">Last 6h</div>
+    <div class="pill" onclick="setRange(24, this)">Last 24h</div>
+    <div class="pill" onclick="setRange(168, this)">Last 7d</div>
+  </div>
+
+  <div style="display:flex; flex-direction:column; gap:20px;">
+    <div class="card" style="padding:16px 20px;">
+      <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">💧 Soil Moisture (%)</div>
+      <div class="full-chart-wrap"><canvas id="chart-sm"></canvas></div>
+    </div>
+    <div class="card" style="padding:16px 20px;">
+      <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">🌡️ Temperature (°C)</div>
+      <div class="full-chart-wrap"><canvas id="chart-temp"></canvas></div>
+    </div>
+    <div class="card" style="padding:16px 20px;">
+      <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">💦 Humidity (%)</div>
+      <div class="full-chart-wrap"><canvas id="chart-hum"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     TAB 3 — Weather
+════════════════════════════════════════ -->
+<div class="soil-view" id="sview-weather">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <div>
+      <div style="font-size:18px; font-weight:700; color:var(--text1);">🌦️ Weather Conditions</div>
+      <div id="weather-fetched" style="font-size:12px; color:var(--text2);">Loading…</div>
+    </div>
+  </div>
+  <div id="severe-alert-container"></div>
+  <div class="w-row">
+    <div>
+      <div class="w-card">
+        <div class="w-card-title">📍 Current Weather <span id="w-city" style="color:var(--text1); font-weight:700; margin-left:auto;">—</span></div>
+        <div class="w-curr-top">
+          <div>
+            <div class="w-curr-temp"><span id="w-temp">—</span><span class="w-curr-unit">°C</span></div>
+            <div class="w-curr-feels">RealFeel® <span id="w-feels">—</span>°C</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="w-curr-icon" id="w-icon">☀️</div>
+            <div class="w-curr-desc" id="w-desc">—</div>
+          </div>
+        </div>
+        <div class="w-details-grid">
+          <div class="w-detail-item"><span class="w-detail-label">Wind</span><span class="w-detail-val" id="w-wind">—</span></div>
+          <div class="w-detail-item"><span class="w-detail-label">Humidity</span><span class="w-detail-val" id="w-hum">—</span></div>
+          <div class="w-detail-item"><span class="w-detail-label">Pressure</span><span class="w-detail-val" id="w-press">—</span></div>
+          <div class="w-detail-item"><span class="w-detail-label">Cloud Cover</span><span class="w-detail-val" id="w-cloud">—</span></div>
+          <div class="w-detail-item"><span class="w-detail-label">UV Index</span><span class="w-detail-val" id="w-uv">—</span></div>
+          <div class="w-detail-item"><span class="w-detail-label">Air Quality</span><span class="aqi-badge" id="w-aqi-badge">—</span></div>
+        </div>
+      </div>
+      <div class="w-card">
+        <div class="w-card-title">🕒 Hourly Forecast (Next 24h)</div>
+        <div class="w-hourly-scroll" id="hourly-scroll"></div>
+      </div>
+    </div>
+    <div>
+      <div class="w-card">
+        <div class="w-card-title">📅 7-Day Forecast</div>
+        <div class="w-daily-list" id="daily-list"></div>
+      </div>
+      <div class="w-card">
+        <div class="w-card-title">🌞 Sun &amp; Moon</div>
+        <div class="w-sun-grid">
+          <div class="w-sun-item">
+            <div class="w-sun-icon">🌅</div>
+            <div class="w-sun-time" id="w-sunrise">—</div>
+            <div class="w-sun-label">Sunrise</div>
+          </div>
+          <div class="w-sun-item">
+            <div class="w-sun-icon">🌇</div>
+            <div class="w-sun-time" id="w-sunset">—</div>
+            <div class="w-sun-label">Sunset</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     TAB 4 — AI Insights
+════════════════════════════════════════ -->
+<div class="soil-view" id="sview-insights">
+  <div style="font-size:18px; font-weight:700; color:var(--text1); margin-bottom:4px;">🧠 Crop &amp; Soil Insights</div>
+  <div style="font-size:13px; color:var(--text2); margin-bottom:16px;">Rule-based recommendations for your field</div>
+  <div id="fusion-loader" style="display:none; text-align:center; padding:48px 0;">
+    <div class="spinner" style="margin:0 auto 16px;"></div>
+    <div style="font-weight:600; color:var(--green);">AI Fusion in progress…</div>
+  </div>
+  <div class="insights-list" id="full-insights" style="transition:opacity .3s;"></div>
+</div>
+
+<!-- ════════════════════════════════════════
+     TAB 5 — Reports
+════════════════════════════════════════ -->
+<div class="soil-view" id="sview-reports">
+  <div style="font-size:18px; font-weight:700; color:var(--text1); margin-bottom:16px;">📁 Report Generation</div>
+  <div class="form-group" style="max-width:280px; margin-bottom:20px;">
+    <label class="form-label">Time Range for Report</label>
+    <select class="form-select" id="report-hours">
+      <option value="1">Last 1 Hour</option>
+      <option value="6">Last 6 Hours</option>
+      <option value="24" selected>Last 24 Hours</option>
+      <option value="168">Last 7 Days</option>
+    </select>
+  </div>
+  <div style="display:flex; flex-direction:column; gap:16px;">
+    <div class="card" style="padding:20px;">
+      <div style="font-size:14px; font-weight:700; color:var(--text1); margin-bottom:8px;">📊 CSV Data Export</div>
+      <div style="font-size:12px; color:var(--text2); margin-bottom:14px;">Downloads all timestamped sensor readings in CSV format.</div>
+      <button class="btn btn-primary" onclick="downloadCSV()">⬇️ Download CSV</button>
+    </div>
+    <div class="card" style="padding:20px;">
+      <div style="font-size:14px; font-weight:700; color:var(--text1); margin-bottom:8px;">📄 PDF Report</div>
+      <div style="font-size:12px; color:var(--text2); margin-bottom:14px;">Generates a comprehensive PDF report with sensor data, weather summary, and insights.</div>
+      <button class="btn btn-primary" onclick="downloadPDF()">📄 Generate PDF</button>
+    </div>
+    <div class="card" style="padding:20px;">
+      <div style="font-size:14px; font-weight:700; color:var(--text1); margin-bottom:8px;">📋 Quick Export (Client-side)</div>
+      <div style="font-size:12px; color:var(--text2); margin-bottom:14px;">Instant export of the current reading without server round-trip.</div>
+      <button class="btn btn-outline" onclick="quickExportCSV()">Quick Export</button>
+    </div>
+  </div>
+</div>
+
+<!-- USB connect button -->
+<button id="btn-connect-usb">🔌 Connect USB Sensor</button>
+
+<!-- Alert bar -->
+<div class="alert-bar" id="alert-bar"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/app.js"></script>
+<script>
+// ── In-page tab switcher ──────────────────────────
+function soilTab(name, btn) {
+  document.querySelectorAll('.soil-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.soil-view').forEach(v => v.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('sview-' + name).classList.add('active');
+
+  // trigger data fetches on demand
+  if (name === 'charts')   { state.currentView = 'charts';   fetchHistory(); }
+  if (name === 'weather')  { state.currentView = 'weather';  fetchWeather(); }
+  if (name === 'insights') { state.currentView = 'insights'; fetchInsights(); }
+}
+</script>
+{% endblock %}
