@@ -71,7 +71,7 @@ except Exception as e:
 # AI MODEL — loaded once at startup
 # ============================================================
 
-MODEL_PATH   = os.path.join(ROOT, 'plant_disease_model_new.keras')
+MODEL_PATH   = os.path.join(ROOT, 'plant_disease_model.tflite')
 ENCODER_PATH = os.path.join(ROOT, 'label_encoder_new.joblib')
 _ai_model   = None
 _label_enc  = None
@@ -79,9 +79,10 @@ _label_enc  = None
 def _load_ai_model():
     global _ai_model, _label_enc
     try:
-        import tensorflow as tf
+        from ai_edge_litert.interpreter import Interpreter
         import joblib
-        _ai_model  = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        _ai_model  = Interpreter(model_path=MODEL_PATH)
+        _ai_model.allocate_tensors()
         _label_enc = joblib.load(ENCODER_PATH)
         print(f'[CropGuard] AI model loaded — {MODEL_PATH}')
     except Exception as e:
@@ -117,9 +118,9 @@ def _enhance_contrast(img_rgb):
 
 def _preprocess_for_model(img_rgb):
     import cv2
-    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
     resized = cv2.resize(img_rgb, (224,224))
-    return preprocess_input(np.expand_dims(resized.astype('float32'), axis=0))
+    # MobileNetV2 preprocessing: scale to [-1, 1]
+    return (np.expand_dims(resized.astype('float32'), axis=0) / 127.5) - 1.0
 
 def _parse_label(label: str):
     if '___' in label:
@@ -550,7 +551,11 @@ def api_predict():
         enhanced  = _enhance_contrast(processed)
         inp       = _preprocess_for_model(enhanced)
 
-        preds = _ai_model.predict(inp, verbose=0)
+        input_details = _ai_model.get_input_details()
+        output_details = _ai_model.get_output_details()
+        _ai_model.set_tensor(input_details[0]['index'], inp)
+        _ai_model.invoke()
+        preds = _ai_model.get_tensor(output_details[0]['index'])
         top3_idx = np.argsort(preds[0])[-3:][::-1]
         idx      = int(top3_idx[0])
         conf     = float(preds[0][idx]) * 100
