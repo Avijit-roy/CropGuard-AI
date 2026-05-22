@@ -60,6 +60,13 @@ def save_persistent_config():
 
 load_persistent_config()
 
+# Initialize Database tables (crucial for Gunicorn/Render deployments)
+try:
+    from backend.server import init_database
+    init_database()
+except Exception as e:
+    print(f"[CropGuard] Warning: Could not initialize database: {e}")
+
 # ============================================================
 # AI MODEL — loaded once at startup
 # ============================================================
