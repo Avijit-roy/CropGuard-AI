@@ -579,23 +579,33 @@ def api_predict():
         # Fusion
         fusion_data = None
         try:
-            from backend.server import get_latest_reading, get_average_scores
-            from backend.fusion_engine import fuse, SoilState, WeatherState
-            latest = get_latest_reading('cropguard_01')
-            avg    = get_average_scores(hours=168, device_id='cropguard_01')
+            try:
+                from backend.fusion_engine import fuse, SoilState, WeatherState
+            except ImportError:
+                from fusion_engine import fuse, SoilState, WeatherState
+            latest = get_latest_sensor()          # defined locally in dashboard_api.py
             if latest and latest.get('temperature') is not None:
-                f_temp = avg.get('avg_temperature') or latest['temperature']
-                f_hum  = avg.get('avg_humidity')    or latest['humidity']
-                f_sm   = avg.get('avg_soil_moisture') or latest['soil_moisture']
+                # Compute 7-day averages using the local get_readings() helper
+                readings_7d = get_readings(hours=168, max_rows=2000)
+                if readings_7d:
+                    f_temp = sum(r['temperature']   for r in readings_7d) / len(readings_7d)
+                    f_hum  = sum(r['humidity']       for r in readings_7d) / len(readings_7d)
+                    f_sm   = sum(r['soil_moisture']  for r in readings_7d) / len(readings_7d)
+                else:
+                    f_temp = latest['temperature']
+                    f_hum  = latest['humidity']
+                    f_sm   = latest['soil_moisture']
+
                 weather_json = fetch_weather()
                 w_curr   = weather_json.get('current', {})
                 w_hourly = weather_json.get('hourly', [])
-                max_prec = max([h.get('precip_prob',0) for h in w_hourly[:6]], default=0.0)
+                max_prec = max([h.get('precip_prob', 0) for h in w_hourly[:6]], default=0.0)
+
                 soil = SoilState(
                     temperature=float(f_temp), humidity=float(f_hum),
                     soil_moisture=float(f_sm),
-                    soil_dry=bool(latest.get('soil_dry',False)),
-                    soil_wet=bool(latest.get('soil_wet',False)),
+                    soil_dry=bool(latest.get('soil_dry', False)),
+                    soil_wet=bool(latest.get('soil_wet', False)),
                 )
                 weather = WeatherState(
                     temp=w_curr.get('temp') or 0.0,
@@ -607,15 +617,15 @@ def api_predict():
                 )
                 fr = fuse(label, crop, conf, soil, weather)
                 fusion_data = {
-                    'alert_level':      fr.alert_level,
-                    'risk_score':       fr.risk_score,
-                    'combined_insight': fr.combined_insight,
-                    'soil_advice':      fr.soil_advice,
-                    'immediate_actions':fr.immediate_actions,
-                    'treatment':        fr.treatment,
-                    'prevention':       fr.prevention,
-                    'irrigation_fix':   fr.irrigation_fix,
-                    'fertiliser_fix':   fr.fertiliser_fix,
+                    'alert_level':       fr.alert_level,
+                    'risk_score':        fr.risk_score,
+                    'combined_insight':  fr.combined_insight,
+                    'soil_advice':       fr.soil_advice,
+                    'immediate_actions': fr.immediate_actions,
+                    'treatment':         fr.treatment,
+                    'prevention':        fr.prevention,
+                    'irrigation_fix':    fr.irrigation_fix,
+                    'fertiliser_fix':    fr.fertiliser_fix,
                 }
         except Exception as fe:
             print('Fusion error:', fe)
