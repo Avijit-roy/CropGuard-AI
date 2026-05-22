@@ -25,22 +25,22 @@ def main():
     processes = []
 
     try:
-        # 1. MQTT Subscriber — also starts the Flask API internally
-        print("[1/2] Starting MQTT Subscriber & Flask API server...")
+        # 1. Flask API Server & DB Manager
+        print("[1/2] Starting Backend Server...")
         sub_process = subprocess.Popen(
-            [sys.executable, "backend/mqtt_subscriber.py"],
+            [sys.executable, "backend/server.py"],
             cwd=os.path.dirname(os.path.abspath(__file__))
         )
         processes.append(sub_process)
         time.sleep(4)  # Give the API + model time to load
 
-        # 2. MQTT Publisher — reads from Arduino (skip on cloud/Render)
+        # 2. Local Serial Reader (reads Arduino and POSTs to API)
         if os.environ.get("RENDER"):
-            print("[2/2] Skipping MQTT Publisher (cloud deployment — local hardware not present)")
+            print("[2/2] Skipping Local Serial Reader (cloud deployment — local hardware not present)")
         else:
-            print("[2/2] Starting MQTT Publisher (Serial → MQTT)...")
+            print("[2/2] Starting Local USB Serial Reader...")
             pub_process = subprocess.Popen(
-                [sys.executable, "iot/mqtt_publisher.py"],
+                [sys.executable, "backend/serial_reader.py"],
                 cwd=os.path.dirname(os.path.abspath(__file__))
             )
             processes.append(pub_process)

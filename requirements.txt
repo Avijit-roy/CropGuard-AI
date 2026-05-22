@@ -2,7 +2,6 @@ tensorflow>=2.12.0
 tf-keras
 opencv-python>=4.7.0
 joblib>=1.3.0
-paho-mqtt>=1.6.0
 pyserial>=3.5
 plotly>=5.15.0
 pandas>=1.5.0

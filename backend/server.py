@@ -1,21 +1,15 @@
 # ============================================================
-# FILE: backend/mqtt_subscriber.py
-# PURPOSE: Subscribes to MQTT broker, receives sensor data,
-#          and stores all readings in SQLite for the dashboard
+# FILE: backend/server.py
+# PURPOSE: Initializes SQLite database, runs data retention,
+#          and starts the Flask REST API server.
 # ============================================================
 
-import json
 import sqlite3
 import logging
 import logging.handlers
 import time
 import threading
-import paho.mqtt.client as mqtt
 from datetime import datetime, timezone
-
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_PORT   = 1883
-MQTT_TOPIC  = "plant/soil/#"
 
 DB_PATH = "soil_data.db"
 
@@ -28,7 +22,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.handlers.RotatingFileHandler(
-            "subscriber.log", maxBytes=5*1024*1024, backupCount=3  # 5 MB per file, keep 3 backups
+            "server.log", maxBytes=5*1024*1024, backupCount=3
         ),
         logging.StreamHandler(),
     ]
@@ -50,9 +44,9 @@ def init_database():
             timestamp        TEXT    NOT NULL,
             temperature      REAL,
             humidity         REAL,
-            soil_moisture    REAL,        -- HL-69 probe (replaces moisture_pct)
-            soil_dry         INTEGER,     -- 1 if soil too dry
-            soil_wet         INTEGER,     -- 1 if soil waterlogged (replaces surface_wet)
+            soil_moisture    REAL,
+            soil_dry         INTEGER,
+            soil_wet         INTEGER,
             air_quality_pct  REAL,
             high_ammonia     INTEGER,
             pressure_hpa     REAL,
@@ -179,7 +173,7 @@ def save_soil_reading(data: dict):
             conn.close()
 
 # ============================================================
-# PUBLIC QUERY FUNCTIONS (used by Streamlit + fusion engine)
+# PUBLIC QUERY FUNCTIONS
 # ============================================================
 
 def get_latest_reading(device_id=None):
@@ -223,24 +217,16 @@ def get_average_scores(hours=24, device_id=None):
     return dict(row) if row else {}
 
 def get_duration_metrics(hours=24, device_id=None):
-    """
-    Calculates duration (in hours) of continuous conditions:
-    - High humidity (> 80%)
-    - Wet soil (soil_wet = 1)
-    """
     readings = get_readings_history(hours=hours, device_id=device_id)
     if not readings:
         return {"humidity_high_hours": 0.0, "soil_wet_hours": 0.0}
 
-    # Sort by created_at desc (latest first) to count backwards
     readings.sort(key=lambda x: x['created_at'], reverse=True)
 
     hum_hours = 0.0
     wet_hours = 0.0
-    
     last_ts = None
     
-    # Humidity duration
     for r in readings:
         ts = datetime.fromisoformat(r['created_at'].replace(' ', 'T'))
         if r['humidity'] > 80:
@@ -249,10 +235,9 @@ def get_duration_metrics(hours=24, device_id=None):
                 hum_hours += delta
             last_ts = ts
         else:
-            break # continuous chain broken
+            break 
 
     last_ts = None
-    # Soil wet duration
     for r in readings:
         ts = datetime.fromisoformat(r['created_at'].replace(' ', 'T'))
         if r['soil_wet'] == 1:
@@ -261,7 +246,7 @@ def get_duration_metrics(hours=24, device_id=None):
                 wet_hours += delta
             last_ts = ts
         else:
-            break # continuous chain broken
+            break 
 
     return {
         "humidity_high_hours": round(hum_hours, 1),
@@ -269,48 +254,14 @@ def get_duration_metrics(hours=24, device_id=None):
     }
 
 # ============================================================
-# MQTT CALLBACKS
-# ============================================================
-
-def on_connect(client, userdata, flags, rc, properties=None):
-    if rc == 0:
-        log.info(f"Connected to {MQTT_BROKER}")
-        client.subscribe(MQTT_TOPIC, qos=1)
-        log.info(f"Subscribed to: {MQTT_TOPIC}")
-    else:
-        log.error(f"MQTT connection failed: rc={rc}")
-
-def on_message(client, userdata, msg):
-    try:
-        payload = msg.payload.decode("utf-8")
-        data    = json.loads(payload)
-        if not isinstance(data, dict):
-            return                          # skip bare ints, strings, arrays
-        if "status" in data or "error" in data:
-            return
-        log.info(
-            f"Received | temp={data.get('temperature')}°C | "
-            f"soil={data.get('soil_moisture')}%"
-        )
-        save_soil_reading(data)
-    except json.JSONDecodeError as e:
-        log.warning(f"Invalid JSON: {e}")
-    except Exception as e:
-        log.error(f"Message handling error: {e}")
-
-def on_disconnect(client, userdata, flags, rc, properties=None):
-    if rc != 0:
-        log.warning("Disconnected unexpectedly — auto-reconnecting...")
-
-# ============================================================
 # MAIN
 # ============================================================
 
 def main():
-    log.info("=== CropGuard AI Subscriber Starting ===")
+    log.info("=== CropGuard AI Server Starting ===")
     init_database()
 
-    # Start background data-retention thread (purges data older than 7 days)
+    # Start background data-retention thread
     threading.Thread(target=_retention_loop, daemon=True).start()
     log.info(f"Data retention active — keeping last {DATA_RETENTION_DAYS} days, cleanup every {CLEANUP_INTERVAL_SECS//3600}h")
 
@@ -319,23 +270,12 @@ def main():
     threading.Thread(target=start_api_server, daemon=True).start()
     log.info("Embedded Dashboard API started on port 5000")
 
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="plant_subscriber_main")
-    client.on_connect    = on_connect
-    client.on_message    = on_message
-    client.on_disconnect = on_disconnect
-
-    while True:
-        try:
-            client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
-            client.loop_forever()
-        except KeyboardInterrupt:
-            log.info("Stopped by user")
-            break
-        except Exception as e:
-            log.error(f"Connection error: {e} | Retrying in 10s...")
-            time.sleep(10)
-
-    client.disconnect()
+    # Keep main thread alive
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        log.info("Stopped by user")
 
 if __name__ == "__main__":
     main()

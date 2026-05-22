@@ -565,7 +565,7 @@ def api_predict():
         # Fusion
         fusion_data = None
         try:
-            from backend.mqtt_subscriber import get_latest_reading, get_average_scores
+            from backend.server import get_latest_reading, get_average_scores
             from backend.fusion_engine import fuse, SoilState, WeatherState
             latest = get_latest_reading('cropguard_01')
             avg    = get_average_scores(hours=168, device_id='cropguard_01')
