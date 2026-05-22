@@ -413,6 +413,387 @@ function handleLine(line) {
 // ─── Clock ───────────────────────────────────────────
 function updateClock() { set('time-display', new Date().toLocaleTimeString()); }
 
+// ─── SPA Tab Switching ──────────────────────────────
+function switchAppTab(name, pushState = true) {
+  // Update sidebar active link
+  document.querySelectorAll('.app-sidebar .nav-link').forEach(link => {
+    link.classList.remove('active');
+  });
+  
+  let targetLink = document.getElementById('nav-' + name);
+  if (name === 'preferences') {
+    targetLink = document.getElementById('nav-prefs') || document.getElementById('nav-preferences');
+  }
+  if (targetLink) targetLink.classList.add('active');
+
+  // Update visible panel
+  document.querySelectorAll('.app-panel').forEach(panel => {
+    panel.classList.remove('active-panel');
+  });
+  const targetPanel = document.getElementById('panel-' + name);
+  if (targetPanel) targetPanel.classList.add('active-panel');
+
+  // Update dynamic topbar header title
+  const titleMap = {
+    'soil': '🌱 Live Soil Monitor',
+    'disease': '🔬 Plant Disease Detection',
+    'history': '📄 Detection & Soil History',
+    'preferences': '⚙️ System Preferences'
+  };
+  const titleEl = document.getElementById('app-title-dynamic') || document.querySelector('.topbar-title');
+  if (titleEl) titleEl.innerHTML = titleMap[name] || 'CropGuard AI';
+
+  // Push state to browser history if requested
+  if (pushState) {
+    window.history.pushState(null, "", "/" + (name === 'soil' ? '' : name));
+  }
+
+  // Trigger special page actions on switch
+  if (name === 'history') {
+    loadDiseaseHistory();
+    loadSoilHistory();
+  }
+}
+
+// Handle browser navigation (back/forward)
+window.addEventListener('popstate', () => {
+  const path = window.location.pathname.replace('/', '') || 'soil';
+  switchAppTab(path, false);
+});
+
+// ─── Disease Detection Init ─────────────────────────
+function initDiseaseDetection() {
+  const dropZone = $('drop-zone');
+  const fileInput = $('file-input');
+  if (!dropZone || !fileInput) return;
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) loadImage(file);
+  });
+  fileInput.addEventListener('change', e => { if (e.target.files[0]) loadImage(e.target.files[0]); });
+}
+
+let cropper = null;
+let lastResult = null;
+
+function loadImage(file) {
+  if (file.size > 10 * 1024 * 1024) { showToast('File too large (max 10MB)', 'error'); return; }
+  const url = URL.createObjectURL(file);
+  const img = $('crop-img');
+  if (!img) return;
+  img.src = url;
+  $('crop-section').style.display = 'block';
+  $('empty-state').style.display = 'none';
+  $('result-panel').style.display = 'none';
+  $('loading-state').style.display = 'none';
+
+  if (cropper) { cropper.destroy(); cropper = null; }
+  img.onload = () => {
+    cropper = new Cropper(img, {
+      viewMode: 2,
+      dragMode: 'crop',
+      autoCropArea: 0.8,
+      responsive: true,
+      background: false,
+      guides: true,
+    });
+  };
+}
+
+async function runDiagnosis() {
+  if (!cropper) { showToast('Please upload an image first', 'error'); return; }
+
+  const btn = $('btn-diagnose');
+  const btnText = $('btn-text');
+  const spinner = $('btn-spinner');
+  btn.disabled = true;
+  btnText.textContent = 'Processing…';
+  spinner.style.display = 'block';
+
+  $('loading-state').style.display = 'block';
+  $('empty-state').style.display = 'none';
+  $('result-panel').style.display = 'none';
+
+  try {
+    $('loading-msg').textContent = 'Cropping image…';
+    const canvas = cropper.getCroppedCanvas({ width: 640, height: 640 });
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
+
+    $('loading-msg').textContent = 'Running AI model…';
+    const formData = new FormData();
+    formData.append('image', blob, 'leaf.jpg');
+
+    const resp = await fetch('/api/predict', { method: 'POST', body: formData });
+    if (!resp.ok) throw new Error((await resp.json()).error || 'Prediction failed');
+    const data = await resp.json();
+    lastResult = data;
+
+    displayResult(data);
+  } catch(err) {
+    $('loading-state').style.display = 'none';
+    $('empty-state').style.display = 'block';
+    showToast('Error: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btnText.textContent = '🚀 Run AI Diagnosis';
+    spinner.style.display = 'none';
+  }
+}
+
+function displayResult(d) {
+  $('loading-state').style.display = 'none';
+  $('result-panel').style.display = 'block';
+
+  const healthy = d.healthy;
+  const icon = healthy ? '✅' : (d.alert_level === 'critical' ? '🚨' : '⚠️');
+  set('res-icon', icon);
+  set('res-crop', 'Crop: ' + d.crop);
+  set('res-disease', healthy ? '✅ Healthy Plant' : '⚠️ ' + d.disease);
+  const bar = $('res-conf-bar');
+  if (bar) bar.style.width = d.confidence + '%';
+  set('res-conf', d.confidence.toFixed(1) + '% confidence');
+
+  const badge = $('res-alert-badge');
+  if (badge) {
+    badge.textContent = (d.alert_level || 'unknown').toUpperCase();
+    badge.className = 'badge badge-' + (d.alert_level || 'low');
+  }
+
+  const lowConf = $('low-conf-warning');
+  if (lowConf) lowConf.style.display = d.confidence < 60 ? 'flex' : 'none';
+
+  // Top-3
+  const top3Div = $('top3-bars');
+  if (top3Div) {
+    top3Div.innerHTML = d.top3.map(([lbl, pct]) => {
+      const parts = lbl.split('___');
+      const name = (parts[1] || lbl).replace(/_/g,' ');
+      const crop = parts[0] || '';
+      return `<div class="top3-bar">
+        <div class="top3-label">${crop} — ${name.charAt(0).toUpperCase()+name.slice(1)}</div>
+        <div class="top3-track"><div class="top3-fill" style="width:${pct}%"></div></div>
+        <div class="top3-pct">${pct.toFixed(1)}%</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Fusion
+  if (d.fusion) {
+    const f = d.fusion;
+    $('fusion-panel').style.display = 'block';
+    $('no-sensor-info').style.display = 'none';
+    set('fusion-risk', f.risk_score + '/100');
+
+    const insightEl = $('fusion-insight');
+    if (insightEl) {
+      const alertClass = {critical:'alert-critical', high:'alert-high', medium:'alert-medium', low:'alert-low', healthy:'alert-low'}[f.alert_level] || 'alert-info';
+      insightEl.className = 'alert ' + alertClass;
+      insightEl.innerHTML = '<strong>🔍 AI Insight:</strong> ' + f.combined_insight;
+    }
+
+    set('fusion-soil', f.soil_advice);
+
+    const actionsEl = $('fusion-actions');
+    if (actionsEl) {
+      actionsEl.innerHTML = f.immediate_actions.map(a =>
+        `<div class="action-item"><span>⚡</span><span>${a}</span></div>`).join('');
+    }
+    const treatmentEl = $('fusion-treatment');
+    if (treatmentEl) {
+      treatmentEl.innerHTML = f.treatment.map(t =>
+        `<div class="action-item"><span>💊</span><span>${t}</span></div>`).join('');
+    }
+    const prevEl = $('fusion-prevention');
+    if (prevEl) {
+      prevEl.innerHTML = f.prevention.map(p =>
+        `<div class="action-item"><span>🛡️</span><span>${p}</span></div>`).join('');
+    }
+    set('fusion-irrigation', f.irrigation_fix);
+    set('fusion-fertiliser', f.fertiliser_fix);
+  } else {
+    $('fusion-panel').style.display = 'none';
+    $('no-sensor-info').style.display = 'flex';
+  }
+
+  buildReportUrl(d);
+}
+
+function buildReportUrl(d) {
+  const lines = [
+    'CropGuard AI — Plant Disease Report',
+    '='.repeat(40),
+    'Date       : ' + new Date().toLocaleString(),
+    'Crop       : ' + d.crop,
+    'Disease    : ' + (d.healthy ? 'Healthy' : d.disease),
+    'Confidence : ' + d.confidence.toFixed(2) + '%',
+  ];
+  if (d.fusion) {
+    const f = d.fusion;
+    lines.push('', 'Fusion Alert  : ' + f.alert_level.toUpperCase());
+    lines.push('Risk Score    : ' + f.risk_score + '/100');
+    lines.push('AI Insight    : ' + f.combined_insight);
+    lines.push('', 'Immediate Actions', '-'.repeat(40));
+    f.immediate_actions.forEach(a => lines.push('  • ' + a));
+    lines.push('', 'Treatment', '-'.repeat(40));
+    f.treatment.forEach(t => lines.push('  • ' + t));
+    lines.push('', 'Prevention', '-'.repeat(40));
+    f.prevention.forEach(p => lines.push('  • ' + p));
+    lines.push('', 'Irrigation : ' + f.irrigation_fix);
+    lines.push('Fertiliser  : ' + f.fertiliser_fix);
+  }
+  const blob = new Blob([lines.join('\n')], {type:'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a = $('btn-download-report');
+  if (a) {
+    a.href = url;
+    a.download = 'diagnosis_' + new Date().toISOString().slice(0,16).replace('T','_') + '.txt';
+  }
+}
+
+// ─── History Page Logic ──────────────────────────────
+let diseaseHistoryData = [];
+let soilHistoryData = [];
+
+function switchHistoryTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  const target = $('tab-' + name);
+  if (target) target.classList.add('active');
+}
+
+async function loadDiseaseHistory() {
+  const loading = $('disease-loading');
+  const table = $('disease-table');
+  const empty = $('disease-empty');
+  if (!loading) return;
+
+  try {
+    const resp = await fetch('/api/disease-history');
+    const data = await resp.json();
+    diseaseHistoryData = data;
+    loading.style.display = 'none';
+
+    if (!data || data.length === 0) {
+      empty.style.display = 'flex';
+      table.style.display = 'none';
+      return;
+    }
+    table.style.display = 'table';
+    empty.style.display = 'none';
+    const tbody = $('disease-tbody');
+    if (tbody) {
+      tbody.innerHTML = data.map((r, i) => {
+        const isHealthy = (r.disease || '').toLowerCase() === 'healthy';
+        const sev = r.severity || '—';
+        return `<tr>
+          <td style="color:var(--text3);">${i+1}</td>
+          <td>${fmtHistoryDate(r.timestamp)}</td>
+          <td>${r.crop || '—'}</td>
+          <td><span style="color:${isHealthy ? 'var(--green)' : '#f6ad55'};">${r.disease || '—'}</span></td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div class="progress-bar" style="width:80px;"><div class="progress-fill" style="width:${r.confidence||0}%"></div></div>
+              <span style="color:var(--text2);">${(r.confidence||0).toFixed(1)}%</span>
+            </div>
+          </td>
+          <td><span class="badge badge-${severityToBadge(sev)}">${sev}</span></td>
+        </tr>`;
+      }).join('');
+    }
+  } catch(e) {
+    loading.innerHTML = '<span style="color:var(--red);">Failed to load history</span>';
+  }
+}
+
+function severityToBadge(s) {
+  s = (s||'').toLowerCase();
+  if (s === 'high' || s === 'critical') return 'critical';
+  if (s === 'medium') return 'medium';
+  if (s === 'low' || s === 'none') return 'healthy';
+  return 'low';
+}
+
+async function loadSoilHistory() {
+  const hoursSelect = $('soil-hours');
+  const loading = $('soil-loading');
+  const table = $('soil-table');
+  const empty = $('soil-empty');
+  const count = $('soil-count');
+  if (!loading) return;
+
+  const hours = hoursSelect ? hoursSelect.value : 24;
+  loading.style.display = 'block';
+  table.style.display = 'none';
+  empty.style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/history?hours=' + hours);
+    const data = await resp.json();
+    soilHistoryData = data;
+    loading.style.display = 'none';
+
+    if (!data || data.length === 0) {
+      empty.style.display = 'flex';
+      if (count) count.textContent = '';
+      return;
+    }
+
+    if (count) count.textContent = data.length + ' readings';
+    table.style.display = 'table';
+
+    const rows = data.slice(-500).reverse(); // most recent first, cap 500
+    const tbody = $('soil-tbody');
+    if (tbody) {
+      tbody.innerHTML = rows.map(r => {
+        const sm = r.soil_moisture || 0;
+        const smOk = sm >= 30 && sm <= 80;
+        const temp = r.temperature || 0;
+        const tempOk = temp >= 10 && temp <= 35;
+        const hum = r.humidity || 0;
+        const humOk = hum >= 40 && hum <= 80;
+        const allOk = smOk && tempOk && humOk;
+        return `<tr>
+          <td>${fmtHistoryDate(r.timestamp)}</td>
+          <td style="color:${smOk?'var(--green)':'#f6ad55'};">${sm.toFixed(1)}</td>
+          <td style="color:${tempOk?'var(--text1)':'#f6ad55'};">${temp.toFixed(1)}</td>
+          <td style="color:${humOk?'var(--text1)':'#f6ad55'};">${hum.toFixed(1)}</td>
+          <td><span class="badge badge-${allOk?'healthy':'medium'}">${allOk?'OPTIMAL':'CHECK'}</span></td>
+        </tr>`;
+      }).join('');
+    }
+  } catch(e) {
+    loading.innerHTML = '<span style="color:var(--red);">Failed to load soil data</span>';
+  }
+}
+
+function exportHistoryCSV(type) {
+  if (type === 'soil') {
+    const hours = $('soil-hours')?.value || 24;
+    window.open('/api/export/csv?hours=' + hours, '_blank');
+  } else {
+    // Client-side disease CSV
+    const headers = ['id','timestamp','crop','disease','confidence','severity'];
+    const rows = diseaseHistoryData.map(r => headers.map(h => JSON.stringify(r[h]||'')).join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+    a.download = 'disease_history.csv';
+    a.click();
+  }
+}
+
+function fmtHistoryDate(ts) {
+  if (!ts) return '—';
+  try { return new Date(ts).toLocaleString('en-IN'); } catch { return ts; }
+}
+
 // ─── Init ────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   initCharts();
@@ -427,4 +808,9 @@ document.addEventListener('DOMContentLoaded', () => {
   updateClock();
   initUSBSerialButton();
   loadSettings();
+  initDiseaseDetection();
+
+  // Route to the initial SPA panel based on the browser path
+  const initialPath = window.location.pathname.replace('/', '') || 'soil';
+  switchAppTab(initialPath, false);
 });

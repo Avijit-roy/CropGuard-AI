@@ -659,20 +659,11 @@ def api_disease_history():
 
 @app.route('/')
 @app.route('/soil')
-def page_soil():
-    return render_template('soil.html', active_page='soil')
-
 @app.route('/disease')
-def page_disease():
-    return render_template('disease.html', active_page='disease')
-
 @app.route('/history')
-def page_history():
-    return render_template('history.html', active_page='history')
-
 @app.route('/preferences')
-def page_preferences():
-    return render_template('preferences.html', active_page='preferences')
+def page_dashboard():
+    return render_template('dashboard.html')
 
 
 def start_api_server():
