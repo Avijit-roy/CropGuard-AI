@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: cropguard-ai
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --chdir backend dashboard_api:app --workers 1 --timeout 120 --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.10.13"
+      - key: WEATHER_CITY
+        value: "Nabadwip"

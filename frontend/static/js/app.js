@@ -9,9 +9,8 @@ const state = {
   currentView:'overview'
 };
 
-const BASE = (window.location.hostname==='localhost' || window.location.hostname==='127.0.0.1')
-  ? window.location.origin
-  : 'https://cropguard-ai-backend.onrender.com';
+// Always use the same origin — Flask serves both the UI and API
+const BASE = window.location.origin;
 
 let lastFetchTime = null;
 let clientCoords  = null;

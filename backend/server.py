@@ -7,11 +7,20 @@
 import sqlite3
 import logging
 import logging.handlers
+import os
+import sys
 import time
 import threading
 from datetime import datetime, timezone
 
-DB_PATH = "soil_data.db"
+# Resolve paths relative to project root regardless of invocation directory
+_HERE   = os.path.dirname(os.path.abspath(__file__))
+ROOT    = os.path.dirname(_HERE)   # one level up from backend/
+DB_PATH = os.path.join(ROOT, 'soil_data.db')
+
+# Ensure backend/ is on sys.path so "from dashboard_api import ..." works
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
 # ── Data Retention Config ──────────────────────────────────────
 DATA_RETENTION_DAYS   = 7        # Keep only the last 7 days
@@ -22,7 +31,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.handlers.RotatingFileHandler(
-            "server.log", maxBytes=5*1024*1024, backupCount=3
+            os.path.join(ROOT, 'server.log'), maxBytes=5*1024*1024, backupCount=3
         ),
         logging.StreamHandler(),
     ]

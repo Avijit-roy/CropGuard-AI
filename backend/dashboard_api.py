@@ -31,7 +31,10 @@ CORS(app)
 log = logging.getLogger(__name__)
 
 # Use the existing DB from the subscriber
-DB_PATH = 'soil_data.db'
+import os
+_HERE   = os.path.dirname(os.path.abspath(__file__))
+ROOT    = os.path.dirname(_HERE)
+DB_PATH = os.path.join(ROOT, 'soil_data.db')
 WEATHER_API_KEY = os.environ.get('OPENWEATHER_API_KEY', 'YOUR_API_KEY_HERE')
 WEATHER_CITY = os.environ.get('WEATHER_CITY', 'Nabadwip')
 
@@ -662,9 +665,11 @@ def page_preferences():
 
 
 def start_api_server():
+    import os
     wlog = logging.getLogger('werkzeug')
     wlog.setLevel(logging.ERROR)
-    app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port, use_reloader=False)
 
 if __name__ == '__main__':
     start_api_server()

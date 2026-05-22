@@ -12,7 +12,10 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 
 log = logging.getLogger(__name__)
-DB_PATH = "soil_data.db"
+import os
+_HERE   = os.path.dirname(os.path.abspath(__file__))
+ROOT    = os.path.dirname(_HERE)
+DB_PATH = os.path.join(ROOT, 'soil_data.db')
 
 # ============================================================
 # DATA CLASSES
