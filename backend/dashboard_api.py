@@ -71,8 +71,8 @@ except Exception as e:
 # AI MODEL — loaded once at startup
 # ============================================================
 
-MODEL_PATH   = 'plant_disease_model_new.keras'
-ENCODER_PATH = 'label_encoder_new.joblib'
+MODEL_PATH   = os.path.join(ROOT, 'plant_disease_model_new.keras')
+ENCODER_PATH = os.path.join(ROOT, 'label_encoder_new.joblib')
 _ai_model   = None
 _label_enc  = None
 
