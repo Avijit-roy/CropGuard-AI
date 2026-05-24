@@ -274,10 +274,24 @@
   /* ── Weather ── */
   .w-row {
     display: flex;
+    flex-direction: column;
     gap: 16px;
-    flex-wrap: wrap;
-    align-items: flex-start;
     width: 100%;
+  }
+  .w-curr-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .w-bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 768px) {
+    .w-bottom-row {
+      grid-template-columns: 1fr;
+    }
   }
   .w-col-main {
     flex: 1 1 calc(65% - 8px);
@@ -842,7 +856,7 @@
     </div>
     <div id="severe-alert-container"></div>
     <div class="w-row">
-      <div class="w-col-main">
+      <div class="w-curr-section">
         <div class="w-card">
           <div class="w-card-title">
             📍 Current Weather
@@ -898,7 +912,7 @@
           <div class="w-hourly-scroll" id="hourly-scroll"></div>
         </div>
       </div>
-      <div class="w-col-side">
+      <div class="w-bottom-row">
         <div class="w-card">
           <div class="w-card-title">📅 7-Day Forecast</div>
           <div class="w-daily-list" id="daily-list"></div>
