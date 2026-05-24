@@ -122,39 +122,105 @@ def _parse_label(label: str):
     return crop, disease, disease.lower() == 'healthy'
 
 # ============================================================
-# WEATHER (MULTI-API FAILSAFE)
+# WEATHER (OPENWEATHERMAP INTEGRATION)
 # ============================================================
+OWM_API_KEY = "40fc98243f68f3401caef00e163136aa"
+
+def owm_to_wmo(owm_code):
+    """Maps OpenWeatherMap condition codes to WMO codes used by the frontend."""
+    if 200 <= owm_code <= 232: return 95 # Thunderstorm
+    if 300 <= owm_code <= 321: return 51 # Drizzle
+    if 500 <= owm_code <= 504: return 61 # Light/Mod Rain
+    if 511 == owm_code: return 65        # Freezing rain -> Heavy
+    if 520 <= owm_code <= 531: return 80 # Rain showers
+    if 600 <= owm_code <= 622: return 71 # Snow
+    if owm_code == 741: return 45        # Fog
+    if owm_code == 800: return 0         # Clear
+    if owm_code == 801: return 1         # Mainly clear
+    if owm_code == 802: return 2         # Partly cloudy
+    if 803 <= owm_code <= 804: return 3  # Overcast
+    return 2 # Default to partly cloudy
+
 def fetch_weather(lat=None, lon=None):
-    """Robust weather fetching using Open-Meteo and wttr.in fallback."""
-    lat, lon = lat or 23.4, lon or 88.3
+    """Weather fetching using OpenWeatherMap API."""
     try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,surface_pressure,wind_speed_10m,cloud_cover,uv_index&hourly=temperature_2m,precipitation_probability,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto"
-        w = requests.get(url, timeout=5).json()
-        curr = w.get('current', {})
-        hourly = [{"time": w['hourly']['time'][i], "temp": w['hourly']['temperature_2m'][i], "precip_prob": w['hourly']['precipitation_probability'][i], "weather_code": w['hourly']['weather_code'][i]} for i in range(min(24, len(w.get('hourly', {}).get('time', []))))]
-        daily = [{"date": w['daily']['time'][i], "weather_code": w['daily']['weather_code'][i], "temp_max": w['daily']['temperature_2m_max'][i], "temp_min": w['daily']['temperature_2m_min'][i], "sunrise": w['daily']['sunrise'][i], "sunset": w['daily']['sunset'][i]} for i in range(min(7, len(w.get('daily', {}).get('time', []))))]
+        # 1. Fetch Current Weather
+        if lat and lon:
+            curr_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=metric"
+        else:
+            curr_url = f"https://api.openweathermap.org/data/2.5/weather?q={WEATHER_CITY}&appid={OWM_API_KEY}&units=metric"
+            
+        c_res = requests.get(curr_url, timeout=5).json()
+        if c_res.get("cod") != 200:
+            raise Exception(f"OWM Current Error: {c_res.get('message')}")
+
+        # 2. Fetch 5-Day / 3-Hour Forecast
+        if lat and lon:
+            fc_url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=metric"
+        else:
+            fc_url = f"https://api.openweathermap.org/data/2.5/forecast?q={WEATHER_CITY}&appid={OWM_API_KEY}&units=metric"
+            
+        f_res = requests.get(fc_url, timeout=5).json()
+        if f_res.get("cod") != "200":
+            raise Exception(f"OWM Forecast Error: {f_res.get('message')}")
+
+        # Process Hourly (3-hour steps from OWM)
+        hourly = []
+        for item in f_res.get("list", [])[:8]: # Next 24 hours (8 * 3h)
+            hourly.append({
+                "time": item.get("dt_txt"),
+                "temp": item.get("main", {}).get("temp"),
+                "precip_prob": int(item.get("pop", 0) * 100),
+                "weather_code": owm_to_wmo(item.get("weather", [{}])[0].get("id", 800))
+            })
+
+        # Process Daily (Aggregated from 3-hour steps)
+        daily_map = {}
+        for item in f_res.get("list", []):
+            date = item.get("dt_txt", "").split(" ")[0]
+            if date not in daily_map:
+                daily_map[date] = {
+                    "temps": [],
+                    "codes": [],
+                    "dt": item.get("dt")
+                }
+            daily_map[date]["temps"].append(item.get("main", {}).get("temp"))
+            daily_map[date]["codes"].append(item.get("weather", [{}])[0].get("id", 800))
+
+        daily = []
+        for date, val in list(daily_map.items())[:7]:
+            daily.append({
+                "date": date,
+                "weather_code": owm_to_wmo(max(set(val["codes"]), key=val["codes"].count)),
+                "temp_max": max(val["temps"]),
+                "temp_min": min(val["temps"]),
+                "sunrise": datetime.fromtimestamp(c_res.get("sys", {}).get("sunrise", 0)).isoformat() if date == list(daily_map.keys())[0] else None,
+                "sunset": datetime.fromtimestamp(c_res.get("sys", {}).get("sunset", 0)).isoformat() if date == list(daily_map.keys())[0] else None
+            })
+
+        wmo_code = owm_to_wmo(c_res.get("weather", [{}])[0].get("id", 800))
         
         return {
-            "city": WEATHER_CITY,
+            "city": c_res.get("name", WEATHER_CITY),
             "current": {
-                "temp": curr.get("temperature_2m", 25),
-                "humidity": curr.get("relative_humidity_2m", 60),
-                "feels_like": curr.get("apparent_temperature", 25),
-                "wind_speed": curr.get("wind_speed_10m", 0),
-                "cloud_cover": curr.get("cloud_cover", 0),
-                "uv_index": curr.get("uv_index", 0),
-                "rain": curr.get("precipitation", 0),
-                "weather_code": curr.get("weather_code", 0),
-                "pressure": curr.get("surface_pressure", 1013),
+                "temp": c_res.get("main", {}).get("temp", 25),
+                "humidity": c_res.get("main", {}).get("humidity", 60),
+                "feels_like": c_res.get("main", {}).get("feels_like", 25),
+                "wind_speed": c_res.get("wind", {}).get("speed", 0) * 3.6, # m/s to km/h
+                "cloud_cover": c_res.get("clouds", {}).get("all", 0),
+                "uv_index": 0, # Not available in free 2.5 API
+                "rain": c_res.get("rain", {}).get("1h", 0),
+                "weather_code": wmo_code,
+                "pressure": c_res.get("main", {}).get("pressure", 1013),
                 "aqi": 35 
             },
             "hourly": hourly,
             "daily": daily,
-            "weather_code": curr.get("weather_code", 0),
+            "weather_code": wmo_code,
             "fetched_at": datetime.now().isoformat()
         }
     except Exception as e:
-        log.warning(f"Weather: Source 1 failed: {e}")
+        log.warning(f"Weather: OpenWeatherMap failed: {e}")
         return {"city": WEATHER_CITY, "current": {"temp": 28, "humidity": 65, "rain": 0, "pressure": 1012, "weather_code": 1, "feels_like": 30, "wind_speed": 5, "cloud_cover": 20, "uv_index": 5, "aqi": 42}, "hourly": [], "daily": [], "mock": True, "fetched_at": datetime.now().isoformat()}
 
 def generate_insights(sensor, weather, thresholds=None):
