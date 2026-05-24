@@ -12,6 +12,21 @@ const state = {
 // Always use the same origin — Flask serves both the UI and API
 const BASE = window.location.origin;
 
+// Override fetch to automatically redirect to login page on 401 Unauthorized
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+  try {
+    const response = await originalFetch(...args);
+    if (response.status === 401) {
+      window.location.href = '/login';
+      return new Promise(() => {}); // keep pending to prevent error handling from triggering
+    }
+    return response;
+  } catch (err) {
+    throw err;
+  }
+};
+
 let lastFetchTime = null;
 let clientCoords  = null;
 
@@ -616,7 +631,18 @@ function displayResult(d) {
     }
     set('fusion-irrigation', f.irrigation_fix);
     set('fusion-fertiliser', f.fertiliser_fix);
+
+    // LLM Insight
+    if (f.llm_insight) {
+      $('llm-insight-panel').style.display = 'block';
+      set('llm-causes', f.llm_insight.causes || 'Data analysis in progress...');
+      set('llm-suggestions', f.llm_insight.suggestions || 'Monitoring recommended.');
+      set('llm-information', f.llm_insight.information || 'No additional context available.');
+    } else {
+      $('llm-insight-panel').style.display = 'none';
+    }
   } else {
+    $('llm-insight-panel').style.display = 'none';
     $('fusion-panel').style.display = 'none';
     $('no-sensor-info').style.display = 'flex';
   }

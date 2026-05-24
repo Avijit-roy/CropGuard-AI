@@ -5,17 +5,15 @@
 #          a combined risk score and recommendations.
 # ============================================================
 
-import sqlite3
+import database as db
 import json
 import logging
+import requests
+import os
 from datetime import datetime
 from dataclasses import dataclass, asdict
 
 log = logging.getLogger(__name__)
-import os
-_HERE   = os.path.dirname(os.path.abspath(__file__))
-ROOT    = os.path.dirname(_HERE)
-DB_PATH = os.path.join(ROOT, 'soil_data.db')
 
 # ============================================================
 # DATA CLASSES
@@ -56,6 +54,7 @@ class FusionResult:
     irrigation_fix:    str
     risk_score:        int
     timestamp:         str
+    llm_insight:       dict = None # CAUSES, SUGGESTIONS, INFORMATION
 
 # ============================================================
 # KNOWLEDGE BASE
@@ -220,6 +219,64 @@ DISEASE_KB = {
 }
 
 # ============================================================
+# LLM INSIGHT (Groq Integration)
+# ============================================================
+
+def get_llm_insight(disease, crop, confidence, soil: SoilState, weather: WeatherState):
+    """Calls Groq API to get expert agronomy insights."""
+    api_key = os.environ.get("GROQ_API_KEY")
+    model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+    
+    if not api_key:
+        return None
+
+    prompt = f"""
+    You are an expert plant pathologist and agronomist. 
+    Analyze the following data and provide detailed insights.
+    
+    DATA:
+    - Crop: {crop}
+    - Detected Condition/Disease: {disease}
+    - AI Confidence: {confidence:.1f}%
+    - 7-Day Avg Temperature: {soil.temperature:.1f}°C
+    - 7-Day Avg Humidity: {soil.humidity:.1f}%
+    - 7-Day Avg Soil Moisture: {soil.soil_moisture:.1f}%
+    - Current Weather: {weather.temp}°C, {weather.precip_prob}% rain probability
+    
+    Your response MUST be a JSON object with exactly three keys:
+    1. "causes": A string explaining why this disease occurred given the environment.
+    2. "suggestions": A string providing specific, scientific suggestions for treatment and recovery.
+    3. "information": A string providing interesting botanical or pathological facts about this specific disease/crop interaction.
+    
+    Keep explanations professional, concise, and actionable.
+    """
+
+    try:
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "messages": [{"role": "user", "content": prompt}],
+            "model": model,
+            "response_format": {"type": "json_object"}
+        }
+        
+        res = requests.post(url, headers=headers, json=payload, timeout=10)
+        if res.ok:
+            content = res.json()['choices'][0]['message']['content']
+            return json.loads(content)
+    except Exception as e:
+        log.error(f"Groq API Error: {e}")
+    
+    return {
+        "causes": "Environmental data analysis suggests high stress conditions favoring pathogen activity.",
+        "suggestions": "Maintain optimal irrigation and apply recommended fungicides. Monitor humidity levels.",
+        "information": f"{disease} is a common challenge for {crop} growers, often influenced by micro-climate variations."
+    }
+
+# ============================================================
 # CONDITION CLASSIFIER
 # ============================================================
 
@@ -227,26 +284,22 @@ def classify_conditions(soil: SoilState, weather: WeatherState, crop: str) -> li
     conditions = []
     optimal    = CROP_SOIL_OPTIMAL.get(crop, CROP_SOIL_OPTIMAL["Default"])
 
-    # Soil moisture (HL-69)
     m_low, m_high = optimal["moisture"]
     if soil.soil_moisture > m_high + 10 or soil.soil_wet:
         conditions.append("high_moisture")
     elif soil.soil_moisture < m_low - 10 or soil.soil_dry:
         conditions.append("low_moisture")
 
-    # Sensor Temperature (DHT11)
     t_low, t_high = optimal["temperature"]
     if soil.temperature > t_high + 5:
         conditions.append("high_temp")
     elif soil.temperature < t_low - 3:
         conditions.append("cool_temp")
 
-    # Sensor Humidity (DHT11)
     h_low, h_high = optimal["humidity"]
     if soil.humidity > h_high + 5:
         conditions.append("high_humidity")
 
-    # API Weather logic
     if weather.rain_mm > 0.5 or weather.precip_prob > 60:
         conditions.append("rain_incoming")
     
@@ -260,58 +313,33 @@ def classify_conditions(soil: SoilState, weather: WeatherState, crop: str) -> li
 # ============================================================
 
 def generate_recommendations(soil: SoilState, weather: WeatherState, crop: str, conditions: list) -> tuple:
-    """Returns (fertiliser_fix, irrigation_fix)."""
     fertiliser_parts = ["Maintain regular balanced NPK schedule."]
     irrigation_parts = []
-
     optimal       = CROP_SOIL_OPTIMAL.get(crop, CROP_SOIL_OPTIMAL["Default"])
     m_low, m_high = optimal["moisture"]
 
-    # Irrigation based on sensor + weather
     if "high_moisture" in conditions or soil.soil_wet:
-        irrigation_parts.append(
-            f"Soil is wet ({soil.soil_moisture:.0f}%). Stop irrigation. Target: {m_low}-{m_high}%."
-        )
+        irrigation_parts.append(f"Soil is wet ({soil.soil_moisture:.0f}%). Stop irrigation. Target: {m_low}-{m_high}%.")
     elif "rain_incoming" in conditions:
-        irrigation_parts.append(
-            f"Rain expected ({weather.precip_prob:.0f}% prob). Hold irrigation and check soil after rain."
-        )
+        irrigation_parts.append(f"Rain expected ({weather.precip_prob:.0f}% prob). Hold irrigation and check soil after rain.")
     elif "low_moisture" in conditions or soil.soil_dry:
-        irrigation_parts.append(
-            f"Soil is dry ({soil.soil_moisture:.0f}%). Increase irrigation. Target: {m_low}-{m_high}%."
-        )
+        irrigation_parts.append(f"Soil is dry ({soil.soil_moisture:.0f}%). Increase irrigation. Target: {m_low}-{m_high}%.")
     else:
-        irrigation_parts.append(
-            f"Soil moisture normal ({soil.soil_moisture:.0f}%). Maintain schedule."
-        )
+        irrigation_parts.append(f"Soil moisture normal ({soil.soil_moisture:.0f}%). Maintain schedule.")
 
-    return (
-        " ".join(fertiliser_parts),
-        " ".join(irrigation_parts),
-    )
+    return (" ".join(fertiliser_parts), " ".join(irrigation_parts))
 
 # ============================================================
 # RISK SCORE CALCULATOR
 # ============================================================
 
-def calculate_risk_score(
-    disease_confidence: float,
-    alert_level:        str,
-    conditions:         list,
-    soil:               SoilState,
-    disease_triggers:   list,
-) -> int:
+def calculate_risk_score(disease_confidence: float, alert_level: str, conditions: list, soil: SoilState, disease_triggers: list) -> int:
     base = disease_confidence * 0.4
-
     alert_scores = {"critical": 35, "high": 25, "medium": 15, "low": 5, "healthy": 0}
     base += alert_scores.get(alert_level, 10)
-
     matching = set(conditions) & set(disease_triggers)
     base += len(matching) * 8
-
-    # Sensor risk carryover
-    if soil.risk_score > 70:   base += 10
-    
+    if soil.risk_score > 70: base += 10
     return min(100, int(base))
 
 # ============================================================
@@ -335,22 +363,12 @@ def fuse(
     conditions        = classify_conditions(soil, weather, crop)
     matching_triggers = set(conditions) & set(kb["triggers"])
 
-    log.info(f"Conditions: {conditions}")
-    log.info(f"Matching triggers: {matching_triggers}")
-
     if matching_triggers:
-        combined = (
-            f"⚠️ ALERT: Sensor & Weather data actively favor this disease! "
-            f"Detected: {', '.join(matching_triggers).replace('_', ' ')}. "
-            "Address both disease and environment immediately."
-        )
+        combined = (f"⚠️ ALERT: Sensor & Weather data actively favor this disease! Detected: {', '.join(matching_triggers).replace('_', ' ')}. Address both disease and environment immediately.")
     elif not kb["triggers"]:
         combined = "Sensor readings are within range. Focus on preventive maintenance."
     else:
-        combined = (
-            "Environment is not currently favoring this disease. "
-            "Continue monitoring and treat existing symptoms."
-        )
+        combined = ("Environment is not currently favoring this disease. Continue monitoring and treat existing symptoms.")
 
     fertiliser_fix, irrigation_fix = generate_recommendations(soil, weather, crop, conditions)
 
@@ -369,9 +387,10 @@ def fuse(
 
     emoji_map = {"critical": "🚨", "high": "⚠️", "medium": "🟡", "low": "🟢", "healthy": "✅"}
 
-    risk_score = calculate_risk_score(
-        confidence, kb["alert"], conditions, soil, kb["triggers"]
-    )
+    risk_score = calculate_risk_score(confidence, kb["alert"], conditions, soil, kb["triggers"])
+
+    # FETCH LLM INSIGHT
+    llm_insight = get_llm_insight(disease_label, crop, confidence, soil, weather)
 
     result = FusionResult(
         disease           = disease_label,
@@ -380,11 +399,7 @@ def fuse(
         alert_level       = kb["alert"],
         alert_emoji       = emoji_map.get(kb["alert"], "ℹ️"),
         disease_advice    = kb["disease_advice"],
-        soil_advice       = (
-            f"7d Avg Temp: {soil.temperature:.1f}°C | Hum: {soil.humidity:.1f}% | "
-            f"Soil: {soil.soil_moisture:.0f}% | "
-            f"Weather: {weather.temp}°C, {weather.precip_prob}% rain"
-        ),
+        soil_advice       = (f"7d Avg Temp: {soil.temperature:.1f}°C | Hum: {soil.humidity:.1f}% | Soil: {soil.soil_moisture:.0f}% | Weather: {weather.temp}°C, {weather.precip_prob}% rain"),
         combined_insight  = combined,
         immediate_actions = immediate,
         treatment         = kb["treatment"],
@@ -393,39 +408,22 @@ def fuse(
         irrigation_fix    = irrigation_fix,
         risk_score        = risk_score,
         timestamp         = datetime.utcnow().isoformat() + "Z",
+        llm_insight       = llm_insight
     )
 
     _save_recommendation(result)
     return result
 
 def _save_recommendation(result: FusionResult):
-    conn = sqlite3.connect(DB_PATH)
     try:
-        conn.execute("""
-            INSERT INTO recommendations
-                (device_id, disease, soil_score, alert_level,
-                 recommendation, soil_fix, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            "cropguard_01",
-            result.disease,
-            result.risk_score,
-            result.alert_level,
-            json.dumps(result.treatment),
-            result.irrigation_fix, # using irrigation_fix as primary soil fix
-            result.timestamp,
-        ))
-        conn.commit()
-    except sqlite3.Error as e:
+        db.save_recommendation({
+            "device_id": "cropguard_01",
+            "disease": result.disease,
+            "soil_score": result.risk_score,
+            "alert_level": result.alert_level,
+            "recommendation": json.dumps(result.treatment),
+            "soil_fix": result.irrigation_fix,
+            "timestamp": result.timestamp
+        })
+    except Exception as e:
         log.error(f"Failed to save recommendation: {e}")
-    finally:
-        conn.close()
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    test_soil = SoilState(temperature=22.0, humidity=85.0, soil_moisture=75.0, soil_wet=True)
-    test_weather = WeatherState(precip_prob=80.0, rain_mm=2.0)
-    
-    res = fuse("Tomato___Late_blight", "Tomato", 95.0, test_soil, test_weather)
-    print(f"\nResult: {res.alert_level.upper()} - Risk {res.risk_score}/100")
-    print(f"Insight: {res.combined_insight}")

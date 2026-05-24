@@ -456,6 +456,27 @@
         </div>
 
         <!-- Fusion Analysis -->
+        <!-- LLM Expert Insights (New) -->
+        <div id="llm-insight-panel" class="card" style="display:none; margin-bottom:20px; border-left:5px solid #10b981; background:rgba(16,185,129,0.04);">
+          <div class="card-title" style="color:#10b981; display:flex; align-items:center; gap:8px;">
+            <span>🤖 AI Expert Deep-Dive</span>
+            <span style="font-size:10px; padding:2px 6px; background:rgba(16,185,129,0.1); border-radius:4px; font-weight:normal;">POWERED BY LLAMA 3.3</span>
+          </div>
+          <div style="display:grid; gap:16px;">
+            <div>
+              <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text2); margin-bottom:4px; letter-spacing:0.05em;">Potential Causes</div>
+              <div id="llm-causes" style="font-size:13px; line-height:1.6; color:var(--text1);"></div>
+            </div>
+            <div>
+              <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text2); margin-bottom:4px; letter-spacing:0.05em;">Scientific Suggestions</div>
+              <div id="llm-suggestions" style="font-size:13px; line-height:1.6; color:var(--text1);"></div>
+            </div>
+            <div>
+              <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text2); margin-bottom:4px; letter-spacing:0.05em;">Botanical Context</div>
+              <div id="llm-information" style="font-size:13px; line-height:1.6; color:var(--text1);"></div>
+            </div>
+          </div>
+        </div>
         <div id="fusion-panel" class="fusion-panel" style="display:none;">
           <div class="fusion-header">
             <div class="fusion-title">🧬 Fusion Analysis — Disease + Soil Intelligence</div>
