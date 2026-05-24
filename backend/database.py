@@ -60,11 +60,10 @@ def create_or_update_user(google_id, email, name, avatar_url):
         return None
 
 # ============================================================
-# DEVICE OPERATIONS (New)
+# DEVICE OPERATIONS
 # ============================================================
 
 def get_device_owner(device_id):
-    """Returns the user_id that currently owns this device."""
     try:
         res = supabase.table('devices').select('user_id').eq('device_id', device_id).execute()
         return res.data[0]['user_id'] if res.data else None
@@ -73,7 +72,6 @@ def get_device_owner(device_id):
         return None
 
 def set_device_owner(device_id, user_id):
-    """Links a device to a specific user (upsert)."""
     try:
         data = {'device_id': device_id, 'user_id': int(user_id), 'updated_at': datetime.now(timezone.utc).isoformat()}
         res = supabase.table('devices').upsert(data).execute()
@@ -106,11 +104,7 @@ def get_user_settings(user_id):
             }
     except Exception as e:
         log.error(f"Error getting settings for user {user_id}: {e}")
-    return {
-        "thresholds": {"soil_moisture": {"min": 30.0, "max": 80.0, "unit": "%"}, "temperature": {"min": 10.0, "max": 35.0, "unit": "°C"}, "humidity": {"min": 40.0, "max": 80.0, "unit": "%"}},
-        "calibration": {"soil_moisture": 0.0, "temperature": 0.0, "humidity": 0.0},
-        "city": "Nabadwip"
-    }
+    return {"thresholds": {"soil_moisture": {"min": 30.0, "max": 80.0, "unit": "%"}, "temperature": {"min": 10.0, "max": 35.0, "unit": "°C"}, "humidity": {"min": 40.0, "max": 80.0, "unit": "%"}}, "calibration": {"soil_moisture": 0.0, "temperature": 0.0, "humidity": 0.0}, "city": "Nabadwip"}
 
 def save_user_settings(user_id, **kwargs):
     try:
@@ -140,19 +134,21 @@ def get_latest_sensor(user_id=None):
         
         if res.data:
             row = res.data[0]
-            ts = row.get("timestamp")
+            # Use created_at (server time) for connection check
+            ca = row.get("created_at")
             connected = False
-            if ts:
+            if ca:
                 try:
-                    t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                    now = datetime.now(t.tzinfo) if t.tzinfo else datetime.now(timezone.utc)
-                    connected = (now - t).total_seconds() < 15
+                    t = datetime.fromisoformat(ca.replace("Z", "+00:00"))
+                    now = datetime.now(timezone.utc)
+                    # Allow 60 seconds (better for production/cloud)
+                    connected = (now - t).total_seconds() < 60
                 except Exception: pass
             return {
                 "soil_moisture": round((row.get("soil_moisture") or 0.0) + cal["soil_moisture"], 1),
                 "temperature":   round((row.get("temperature")   or 0.0) + cal["temperature"],   1),
                 "humidity":      round((row.get("humidity")       or 0.0) + cal["humidity"],      1),
-                "timestamp": ts, "connected": connected,
+                "timestamp": ca, "connected": connected,
             }
     except Exception as e:
         log.error(f"Error getting latest sensor reading: {e}")
@@ -161,13 +157,13 @@ def get_latest_sensor(user_id=None):
 def get_readings(hours=1, max_rows=1000, user_id=None):
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
-        query = supabase.table('soil_readings').select('timestamp, soil_moisture, temperature, humidity')
+        query = supabase.table('soil_readings').select('timestamp, created_at, soil_moisture, temperature, humidity')
         if user_id: query = query.eq('user_id', int(user_id))
         res = query.gte('created_at', cutoff).order('created_at', desc=True).limit(max_rows).execute()
         cal = get_user_settings(user_id)['calibration'] if user_id else {"soil_moisture": 0.0, "temperature": 0.0, "humidity": 0.0}
         if res.data:
             return [{
-                "timestamp":     r["timestamp"],
+                "timestamp":     r.get("created_at") or r.get("timestamp"),
                 "soil_moisture": (r["soil_moisture"] or 0) + cal["soil_moisture"],
                 "temperature":   (r["temperature"]   or 0) + cal["temperature"],
                 "humidity":      (r["humidity"]       or 0) + cal["humidity"],
@@ -212,7 +208,6 @@ def purge_old_data(days=7):
         supabase.table('soil_readings').delete().lt('created_at', cutoff).execute()
         supabase.table('disease_predictions').delete().lt('timestamp', cutoff).execute()
         supabase.table('recommendations').delete().lt('timestamp', cutoff).execute()
-        log.info(f"Supabase data purged older than {days} days.")
     except Exception as e:
         log.error(f"Error purging Supabase data: {e}")
 
