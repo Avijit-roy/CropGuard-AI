@@ -47,7 +47,7 @@ def main():
 
         print()
         print("✅  All systems running!")
-        print("   Open your browser at:  http://localhost:5000")
+        print("   Open your browser at:  https://cropguard-ai-1-ys7p.onrender.com")
         print("   Press Ctrl+C to shut everything down.\n")
 
         # Wait until subscriber exits (or Ctrl+C)

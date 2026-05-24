@@ -43,6 +43,10 @@ from backend.mqtt_subscriber  import get_latest_reading, get_readings_history, g
 from backend.fusion_engine    import fuse, SoilState, WeatherState
 import requests
 
+# Get project root for model files
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
+
 # ============================================================
 # PAGE CONFIG (Must be first Streamlit command)
 # ============================================================
@@ -141,8 +145,9 @@ st.markdown("""
 # MODEL LOADING
 # ============================================================
 
-MODEL_PATH   = "plant_disease_model_new.keras"
-ENCODER_PATH = "label_encoder_new.joblib"
+# Model paths relative to project root
+MODEL_PATH   = os.path.join(_PROJECT_ROOT, "plant_disease_model_new.keras")
+ENCODER_PATH = os.path.join(_PROJECT_ROOT, "label_encoder_new.joblib")
 
 import tf_keras  # noqa: F401 — side-effect import required for tf.keras compatibility
 
@@ -586,7 +591,7 @@ def page_soil_monitor():
     import streamlit.components.v1 as components
     components.html(
         '''
-        <iframe src="http://localhost:5000" style="width:100%; height:850px; border:none;" allow="serial; geolocation"></iframe>
+        <iframe src="https://cropguard-ai-1-ys7p.onrender.com" style="width:100%; height:850px; border:none;" allow="serial; geolocation"></iframe>
         ''',
         height=860
     )

@@ -8,7 +8,7 @@ import requests
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-API_URL = "http://localhost:5000/api/sensor/upload"
+API_URL = "https://cropguard-ai-1-ys7p.onrender.com/api/sensor/upload"
 
 def find_arduino_port():
     ports = list(serial.tools.list_ports.comports())

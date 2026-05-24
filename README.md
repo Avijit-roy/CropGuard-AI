@@ -180,7 +180,7 @@ This single command starts:
 ### 4. Access the Dashboard
 
 Open your browser (Chrome/Edge recommended) to:
-**[http://localhost:5000](http://localhost:5000)**
+**[https://cropguard-ai-1-ys7p.onrender.com](https://cropguard-ai-1-ys7p.onrender.com)**
 
 ---
 
