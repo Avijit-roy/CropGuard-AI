@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <title>Login - CropGuard AI</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    :root {
+      --bg-dark: #090e0c;
+      --bg-card: rgba(15, 23, 20, 0.7);
+      --primary: #10b981;
+      --primary-hover: #059669;
+      --text-muted: #9ca3af;
+      --border-color: rgba(255, 255, 255, 0.08);
+    }
+    
+    body {
+      margin: 0;
+      padding: 0;
+      background: radial-gradient(circle at 50% 50%, #112d20 0%, var(--bg-dark) 80%);
+      color: #fff;
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Ambient particles */
+    .bg-blobs {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      z-index: 1;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .blob {
+      position: absolute;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%);
+      border-radius: 50%;
+      filter: blur(40px);
+      animation: float 20s infinite ease-in-out;
+    }
+
+    .blob-1 { width: 400px; height: 400px; top: -100px; left: -100px; }
+    .blob-2 { width: 500px; height: 500px; bottom: -150px; right: -100px; animation-delay: -5s; }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-30px) scale(1.1); }
+    }
+
+    .login-container {
+      position: relative;
+      z-index: 2;
+      background: var(--bg-card);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border-color);
+      border-radius: 24px;
+      padding: 48px;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+      text-align: center;
+      box-sizing: border-box;
+    }
+
+    .logo-section {
+      margin-bottom: 36px;
+    }
+
+    .logo-icon {
+      font-size: 3rem;
+      margin-bottom: 12px;
+      display: inline-block;
+      animation: pulse-leaf 3s infinite ease-in-out;
+    }
+
+    @keyframes pulse-leaf {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1) rotate(5deg); }
+    }
+
+    .brand-name {
+      font-family: 'Syne', sans-serif;
+      font-size: 2.2rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+    }
+
+    .brand-ai {
+      color: var(--primary);
+    }
+
+    .tagline {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      margin-top: 8px;
+    }
+
+    .auth-button {
+      background: #fff;
+      color: #1f2937;
+      border: none;
+      border-radius: 12px;
+      padding: 14px 24px;
+      font-size: 1rem;
+      font-weight: 600;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      text-decoration: none;
+      margin-top: 32px;
+    }
+
+    .auth-button:hover {
+      background: #f3f4f6;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.2);
+    }
+
+    .google-icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    .footer-note {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 36px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-blobs">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+  </div>
+
+  <div class="login-container">
+    <div class="logo-section">
+      <span class="logo-icon">🌿</span>
+      <div class="brand-name">CropGuard<span class="brand-ai">AI</span></div>
+      <div class="tagline">Smart Agriculture & Disease Detection</div>
+    </div>
+
+    <a href="https://ojihfwiedvtwkfeluhkf.supabase.co/auth/v1/authorize?provider=google&redirect_to=http://localhost:5000/login" class="auth-button">
+      <svg class="google-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+      </svg>
+      Continue with Google
+    </a>
+
+    <div class="footer-note">
+      Secured by Supabase Auth & Google OAuth. No passwords required.
+    </div>
+  </div>
+
+  <script>
+    const hash = window.location.hash.substring(1);
+    if (hash) {
+      const params = new URLSearchParams(hash);
+      const accessToken = params.get('access_token');
+      if (accessToken) {
+        const button = document.querySelector('.auth-button');
+        button.innerHTML = 'Connecting to CropGuard...';
+        button.style.pointerEvents = 'none';
+        
+        fetch('/auth/supabase-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ access_token: accessToken })
+        })
+        .then(async res => {
+          const data = await res.json();
+          if (res.ok) {
+            window.location.href = '/';
+          } else {
+            alert('Authentication failed: ' + (data.error || 'Unknown error'));
+            window.location.hash = '';
+            window.location.reload();
+          }
+        })
+        .catch(err => {
+          alert('Server connection error: ' + err.message);
+          window.location.hash = '';
+          window.location.reload();
+        });
+      }
+    }
+  </script>
+</body>
+</html>

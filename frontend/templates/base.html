@@ -3,10 +3,114 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <title>{% block title %}CropGuard AI{% endblock %}</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
   <link rel="stylesheet" href="/static/css/dashboard.css">
+  <style>
+    /* User Profile topbar widget styling */
+    .user-profile-container {
+      position: relative;
+      display: inline-block;
+    }
+    .user-profile-trigger {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 12px;
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .user-profile-trigger:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+    .user-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: #10b981;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: #fff;
+    }
+    .user-name-label {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: #e5e7eb;
+    }
+    .user-dropdown {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      width: 220px;
+      background: rgba(15, 23, 20, 0.95);
+      backdrop-filter: blur(15px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      padding: 8px 0;
+      display: none;
+      z-index: 999;
+      transform-origin: top right;
+      animation: scaleUp 0.15s ease-out;
+    }
+    @keyframes scaleUp {
+      from { transform: scale(0.95); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .user-dropdown.show {
+      display: block;
+    }
+    .dropdown-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      text-align: left;
+    }
+    .dropdown-header-name {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .dropdown-header-email {
+      font-size: 0.75rem;
+      color: #9ca3af;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+    }
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      color: #e5e7eb;
+      text-decoration: none;
+      font-size: 0.85rem;
+      transition: background 0.2s ease;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      width: 100%;
+      text-align: left;
+    }
+    .dropdown-item:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: #fff;
+    }
+  </style>
   {% block head %}{% endblock %}
 </head>
 <body class="app-body">
@@ -55,6 +159,28 @@
             <div class="status-dot" id="api-dot"></div>
             <span id="api-label">Connecting…</span>
           </div>
+
+          <!-- User Profile Dropdown -->
+          <div class="user-profile-container">
+            <div class="user-profile-trigger" onclick="toggleUserDropdown(event)">
+              {% if current_user.avatar_url %}
+                <img src="{{ current_user.avatar_url }}" class="user-avatar" alt="Avatar">
+              {% else %}
+                <div class="user-avatar">{{ current_user.name[0] | upper if current_user.name else 'U' }}</div>
+              {% endif %}
+              <span class="user-name-label">{{ current_user.name or 'User' }}</span>
+            </div>
+            <div class="user-dropdown" id="user-dropdown-menu">
+              <div class="dropdown-header">
+                <div class="dropdown-header-name">{{ current_user.name or 'CropGuard User' }}</div>
+                <div class="dropdown-header-email">{{ current_user.email or '' }}</div>
+              </div>
+              <a href="/logout" class="dropdown-item">
+                <span>🚪</span> Logout
+              </a>
+            </div>
+          </div>
+
         </div>
       </header>
 
@@ -111,6 +237,21 @@
       }
     }
     checkApi(); setInterval(checkApi, 10000);
+
+    // User Dropdown Toggler
+    function toggleUserDropdown(event) {
+      event.stopPropagation();
+      const menu = document.getElementById('user-dropdown-menu');
+      menu.classList.toggle('show');
+    }
+
+    // Close dropdown on click outside
+    document.addEventListener('click', function(event) {
+      const menu = document.getElementById('user-dropdown-menu');
+      if (menu && menu.classList.contains('show')) {
+        menu.classList.remove('show');
+      }
+    });
   </script>
   {% block scripts %}{% endblock %}
 </body>

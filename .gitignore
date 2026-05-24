@@ -28,3 +28,4 @@ Thumbs.db
 # Model files (too large for git — store separately)
 # *.keras
 # *.joblib
+.env

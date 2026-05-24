@@ -9,13 +9,16 @@ import logging
 import requests
 import numpy as np
 from datetime import datetime, timedelta, timezone
-from flask import Flask, jsonify, request, send_file, render_template, redirect, url_for
+from flask import Flask, jsonify, request, send_file, render_template, redirect, url_for, session, abort
 from flask_cors import CORS
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.middleware.proxy_fix import ProxyFix
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer
 from reportlab.lib import colors
+import database as db
 
 # Ensure project root is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -26,39 +29,61 @@ app = Flask(
     static_url_path='/static',
     template_folder='../frontend/templates',
 )
+app.secret_key = os.environ.get('SECRET_KEY', 'cropguard-dev-secret-change-in-prod')
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)  # HTTPS on Render
 CORS(app)
 
 log = logging.getLogger(__name__)
 
-# Use the existing DB from the subscriber
-import os
+# ── Flask-Login ──────────────────────────────────────────────
+login_manager = LoginManager(app)
+login_manager.login_view = 'page_login'
+login_manager.login_message = None
+
+# ── Supabase Managed OAuth ───────────────────────────────────
+# OAuth is handled directly via Supabase Auth client-side and backend tokens.
+
+# ── Paths & Defaults ─────────────────────────────────────────
 _HERE   = os.path.dirname(os.path.abspath(__file__))
 ROOT    = os.path.dirname(_HERE)
 DB_PATH = os.path.join(ROOT, 'soil_data.db')
-WEATHER_API_KEY = os.environ.get('OPENWEATHER_API_KEY', 'YOUR_API_KEY_HERE')
 WEATHER_CITY = os.environ.get('WEATHER_CITY', 'Nabadwip')
 
-THRESHOLDS = { "soil_moisture": {"min": 30, "max": 80, "unit": "%"}, "temperature": {"min": 10, "max": 35, "unit": "°C"}, "humidity": {"min": 40, "max": 80, "unit": "%"} }
-calibration = {"soil_moisture": 0, "temperature": 0, "humidity": 0}
-CONFIG_PATH = "config.json"
+DEFAULT_THRESHOLDS = {
+    "soil_moisture": {"min": 30, "max": 80, "unit": "%"},
+    "temperature":   {"min": 10, "max": 35, "unit": "°C"},
+    "humidity":      {"min": 40, "max": 80, "unit": "%"},
+}
+DEFAULT_CALIBRATION = {"soil_moisture": 0, "temperature": 0, "humidity": 0}
+CACHED_GEO = {}
 
-def load_persistent_config():
-    global WEATHER_CITY
-    if os.path.exists(CONFIG_PATH):
-        try:
-            with open(CONFIG_PATH, 'r') as f:
-                c = json.load(f)
-                WEATHER_CITY = c.get("city", WEATHER_CITY)
-                print(f"Loaded config: City={WEATHER_CITY}")
-        except: pass
+# ============================================================
+# USER MODEL
+# ============================================================
+class User(UserMixin):
+    def __init__(self, id, google_id, email, name, avatar_url):
+        self.id         = id
+        self.google_id  = google_id
+        self.email      = email
+        self.name       = name
+        self.avatar_url = avatar_url or ''
+    def get_id(self): return str(self.id)
 
-def save_persistent_config():
-    try:
-        with open(CONFIG_PATH, 'w') as f:
-            json.dump({"city": WEATHER_CITY}, f)
-    except: pass
+@login_manager.user_loader
+def load_user(user_id):
+    row = db.get_user_by_id(user_id)
+    if row:
+        return User(row['id'], row['google_id'], row['email'], row['name'], row['avatar_url'])
+    return None
 
-load_persistent_config()
+# ============================================================
+# PER-USER SETTINGS
+# ============================================================
+def get_user_settings(user_id):
+    return db.get_user_settings(user_id)
+
+def save_user_settings(user_id, **kwargs):
+    db.save_user_settings(user_id, **kwargs)
 
 # Initialize Database tables (crucial for Gunicorn/Render deployments)
 try:
@@ -130,49 +155,12 @@ def _parse_label(label: str):
     disease = disease.replace('_',' ').title()
     return crop, disease, disease.lower() == 'healthy'
 
-def get_latest_sensor():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT * FROM soil_readings ORDER BY created_at DESC LIMIT 1").fetchone()
-    conn.close()
-    if row:
-        d = dict(row)
-        timestamp_str = d.get("timestamp")
-        
-        connected = False
-        if timestamp_str:
-            try:
-                # Remove Z if present so it parses as naive, or handle tz
-                clean_ts = timestamp_str.replace("Z", "+00:00")
-                ts = datetime.fromisoformat(clean_ts)
-                # Ensure we compare timezone-aware or naive correctly
-                if ts.tzinfo:
-                    now = datetime.now(ts.tzinfo)
-                else:
-                    now = datetime.now(timezone.utc)
-                    
-                if (now - ts).total_seconds() < 15: # 15 seconds (publisher sends every 10s)
-                    connected = True
-            except Exception as e:
-                print("Timestamp parse error:", e)
+def get_latest_sensor(user_id=None):
+    return db.get_latest_sensor(user_id)
 
-        return {
-            "soil_moisture": round((d.get("soil_moisture") or 0.0) + calibration["soil_moisture"], 1),
-            "temperature": round((d.get("temperature") or 0.0) + calibration["temperature"], 1),
-            "humidity": round((d.get("humidity") or 0.0) + calibration["humidity"], 1),
-            "timestamp": timestamp_str,
-            "connected": connected
-        }
-    return {"soil_moisture": 0.0, "temperature": 0.0, "humidity": 0.0, "timestamp": None, "connected": False}
+def get_readings(hours=1, max_rows=1000, user_id=None):
+    return db.get_readings(hours, max_rows, user_id)
 
-def get_readings(hours=1, max_rows=1000):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute("SELECT timestamp, soil_moisture, temperature, humidity FROM soil_readings WHERE created_at >= datetime('now', ?) ORDER BY created_at DESC LIMIT ?", (f"-{hours} hours", max_rows)).fetchall()
-    conn.close()
-    return [{"timestamp": r["timestamp"], "soil_moisture": (r["soil_moisture"] or 0) + calibration["soil_moisture"], "temperature": (r["temperature"] or 0) + calibration["temperature"], "humidity": (r["humidity"] or 0) + calibration["humidity"]} for r in rows]
-
-CACHED_GEO = None
 
 def fetch_weather(lat=None, lon=None):
     global CACHED_GEO, WEATHER_CITY
@@ -307,177 +295,177 @@ def get_mock_weather():
         "mock": True
     }
 
-def generate_insights(sensor, weather):
-    insights = []
-    sm = sensor.get("soil_moisture", 0)
+def generate_insights(sensor, weather, thresholds=None):
+    if thresholds is None:
+        thresholds = DEFAULT_THRESHOLDS
+    insights, score = [], 100
+    sm   = sensor.get("soil_moisture", 0)
     temp = sensor.get("temperature", 0)
-    hum = sensor.get("humidity", 0)
+    hum  = sensor.get("humidity", 0)
     w_hum = weather.get("current", {}).get("humidity", 0) if weather else 0
-
-    score = 100
-    
-    if sm < THRESHOLDS["soil_moisture"]["min"]:
+    if sm < thresholds["soil_moisture"]["min"]:
         score -= 25
-        insights.append({"level": "warning", "icon": "💧", "title": "Irrigation Needed",
-                         "message": f"Soil moisture ({sm}%) is below minimum ({THRESHOLDS['soil_moisture']['min']}%). Turn on irrigation for 30 minutes."})
-    elif sm > THRESHOLDS["soil_moisture"]["max"]:
+        insights.append({"level":"warning","icon":"💧","title":"Irrigation Needed","message":f"Soil moisture ({sm}%) is below minimum ({thresholds['soil_moisture']['min']}%). Turn on irrigation for 30 minutes."})
+    elif sm > thresholds["soil_moisture"]["max"]:
         score -= 20
-        insights.append({"level": "danger", "icon": "🌊", "title": "Soil Oversaturated",
-                         "message": f"Soil moisture ({sm}%) exceeds maximum ({THRESHOLDS['soil_moisture']['max']}%). Halt irrigation and check drainage."})
+        insights.append({"level":"danger","icon":"🌊","title":"Soil Oversaturated","message":f"Soil moisture ({sm}%) exceeds maximum ({thresholds['soil_moisture']['max']}%). Halt irrigation and check drainage."})
     else:
-        insights.append({"level": "success", "icon": "✅", "title": "Moisture Optimal",
-                         "message": "Soil moisture is optimal."})
-
+        insights.append({"level":"success","icon":"✅","title":"Moisture Optimal","message":"Soil moisture is optimal."})
     if hum > 80 or w_hum > 80:
         score -= 15
-        insights.append({"level": "danger", "icon": "🍄", "title": "Fungal Disease Risk",
-                         "message": f"High humidity detected ({hum}%). Increase airflow or apply preventative fungicides."})
-
-    if temp > THRESHOLDS["temperature"]["max"]:
+        insights.append({"level":"danger","icon":"🍄","title":"Fungal Disease Risk","message":f"High humidity ({hum}%). Increase airflow or apply preventative fungicides."})
+    if temp > thresholds["temperature"]["max"]:
         score -= 25
-        insights.append({"level": "danger", "icon": "🌡️", "title": "Heat Stress Warning",
-                         "message": f"Temperature ({temp}°C) is critically high. Consider shade netting or misting immediately."})
-    elif temp < THRESHOLDS["temperature"]["min"]:
+        insights.append({"level":"danger","icon":"🌡️","title":"Heat Stress Warning","message":f"Temperature ({temp}°C) critically high. Consider shade netting immediately."})
+    elif temp < thresholds["temperature"]["min"]:
         score -= 20
-        insights.append({"level": "warning", "icon": "❄️", "title": "Cold Stress Risk",
-                         "message": f"Temperature ({temp}°C) is too cold. Deploy frost covers tonight."})
-
+        insights.append({"level":"warning","icon":"❄️","title":"Cold Stress Risk","message":f"Temperature ({temp}°C) too cold. Deploy frost covers tonight."})
     rain = weather.get("current", {}).get("rain", 0) if weather else 0
     if rain > 5:
         score -= 10
-        insights.append({"level": "info", "icon": "🌧️", "title": "Heavy Rainfall Expected",
-                         "message": f"{rain}mm/h rainfall. Delay manual irrigation."})
-
+        insights.append({"level":"info","icon":"🌧️","title":"Heavy Rainfall","message":f"{rain}mm/h rainfall. Delay manual irrigation."})
     score = max(0, score)
-    
-    tone = "Good morning, conditions are looking optimal today! 🌱"
-    if score < 50:
-        tone = "Critical attention required for your field. Action needed immediately! ⚠️"
-    elif score < 80:
-        tone = f"Conditions are decent, but a few things need your attention today. 🔍"
-        
-    return {
-        "score": score,
-        "tone": tone,
-        "insights": insights
-    }
+    if score < 50:   tone = "Critical attention required! ⚠️"
+    elif score < 80: tone = "A few things need attention today. 🔍"
+    else:            tone = "Conditions are looking optimal today! 🌱"
+    return {"score": score, "tone": tone, "insights": insights}
 
 @app.route('/api/sensor')
+@login_required
 def api_sensor():
-    return jsonify(get_latest_sensor())
+    # LINKING STEP: Every time an authenticated user visits their dashboard,
+    # we link the "local_usb" device to them automatically.
+    db.set_device_owner("local_usb", current_user.id)
+    return jsonify(get_latest_sensor(current_user.id))
 
 @app.route('/api/history')
+@login_required
 def api_history():
-    hours = min(int(request.args.get('hours', 1)), 168)  # max 7 days
-    return jsonify(get_readings(hours, max_rows=1000))
+    hours = min(int(request.args.get('hours', 1)), 168)
+    return jsonify(get_readings(hours, max_rows=1000, user_id=current_user.id))
 
 @app.route('/api/weather')
+@login_required
 def api_weather():
-    lat = request.args.get('lat')
-    lon = request.args.get('lon')
-    return jsonify(fetch_weather(lat, lon))
+    return jsonify(fetch_weather(request.args.get('lat'), request.args.get('lon')))
 
 @app.route('/api/insights')
+@login_required
 def api_insights():
-    lat = request.args.get('lat')
-    lon = request.args.get('lon')
-    return jsonify(generate_insights(get_latest_sensor(), fetch_weather(lat, lon)))
+    s  = get_latest_sensor(current_user.id)
+    th = get_user_settings(current_user.id)['thresholds']
+    return jsonify(generate_insights(s, fetch_weather(request.args.get('lat'), request.args.get('lon')), th))
 
 @app.route('/api/sensor/upload', methods=['POST'])
 def api_sensor_upload():
     data = request.json
-    if not data:
-        return jsonify({"status": "error", "message": "No data received"}), 400
-        
-    device_id = data.get("device_id", "client_usb_device")
-    soil_moisture = data.get("soil_moisture")
-    temperature = data.get("temperature")
-    humidity = data.get("humidity")
+    if not data: return jsonify({"status":"error","message":"No data received"}), 400
+    sm  = data.get("soil_moisture")
+    tmp = data.get("temperature")
+    hum = data.get("humidity")
+    device_id = data.get("device_id", "local_usb")
+
+    if sm is None or tmp is None or hum is None:
+        return jsonify({"status":"error","message":"Missing sensor fields"}), 400
     
-    if soil_moisture is None or temperature is None or humidity is None:
-        return jsonify({"status": "error", "message": "Missing sensor fields"}), 400
+    # Identify user_id automatically
+    user_id = None
+    if current_user.is_authenticated:
+        user_id = current_user.id
+        # Claim device ownership if authenticated
+        db.set_device_owner(device_id, user_id)
+    else:
+        # Check database for registered device owner
+        user_id = db.get_device_owner(device_id)
         
-    conn = sqlite3.connect(DB_PATH)
-    timestamp = datetime.now(timezone.utc).isoformat()
-    soil_dry = 1 if float(soil_moisture) < THRESHOLDS["soil_moisture"]["min"] else 0
-    soil_wet = 1 if float(soil_moisture) > THRESHOLDS["soil_moisture"]["max"] else 0
-    
+    if not user_id:
+        # Emergency fallback to user_id 4 if no owner found yet
+        user_id = 4
+        
+    th = get_user_settings(user_id)['thresholds']
     try:
-        conn.execute("""
-            INSERT INTO soil_readings (device_id, timestamp, temperature, humidity, soil_moisture, soil_dry, soil_wet, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        """, (
-            device_id,
-            timestamp,
-            float(temperature),
-            float(humidity),
-            float(soil_moisture),
-            soil_dry,
-            soil_wet
-        ))
-        conn.commit()
+        db.save_soil_reading({
+            "device_id": device_id,
+            "user_id": user_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "temperature": float(tmp),
+            "humidity": float(hum),
+            "soil_moisture": float(sm),
+            "soil_dry": 1 if float(sm) < th["soil_moisture"]["min"] else 0,
+            "soil_wet": 1 if float(sm) > th["soil_moisture"]["max"] else 0
+        })
     except Exception as e:
-        conn.rollback()
-        conn.close()
-        return jsonify({"status": "error", "message": str(e)}), 500
-        
-    conn.close()
-    return jsonify({"status": "success", "message": "Sensor data uploaded successfully"})
+        return jsonify({"status":"error","message":str(e)}), 500
+    return jsonify({"status":"success"})
 
 
 @app.route('/api/thresholds', methods=['GET', 'POST'])
+@login_required
 def api_thresholds():
-    global THRESHOLDS
+    s = get_user_settings(current_user.id)
     if request.method == 'POST':
-        for key in THRESHOLDS:
-            if key in request.json: THRESHOLDS[key].update(request.json[key])
-        return jsonify({"status": "ok", "thresholds": THRESHOLDS})
-    return jsonify(THRESHOLDS)
+        j = request.json or {}
+        sm_  = j.get('soil_moisture', {})
+        tmp_ = j.get('temperature', {})
+        hum_ = j.get('humidity', {})
+        th   = s['thresholds']
+        save_user_settings(current_user.id,
+            th_sm_min=sm_.get('min',   th['soil_moisture']['min']),
+            th_sm_max=sm_.get('max',   th['soil_moisture']['max']),
+            th_temp_min=tmp_.get('min',th['temperature']['min']),
+            th_temp_max=tmp_.get('max',th['temperature']['max']),
+            th_hum_min=hum_.get('min', th['humidity']['min']),
+            th_hum_max=hum_.get('max', th['humidity']['max']),
+        )
+        return jsonify({"status":"ok","thresholds":get_user_settings(current_user.id)['thresholds']})
+    return jsonify(s['thresholds'])
 
 
 @app.route('/api/config', methods=['GET', 'POST'])
+@login_required
 def api_config():
-    global WEATHER_CITY, CACHED_GEO
     if request.method == 'POST':
-        req = request.json
-        if req:
-            if "city" in req:
-                WEATHER_CITY = req["city"]
-                CACHED_GEO = None 
-            save_persistent_config()
-    return jsonify({"status": "ok", "city": WEATHER_CITY})
+        j = request.json or {}
+        if 'city' in j: save_user_settings(current_user.id, city=j['city'])
+    return jsonify({"status":"ok","city":get_user_settings(current_user.id)['city']})
+
 
 @app.route('/api/calibration', methods=['GET', 'POST'])
+@login_required
 def api_calibration():
-    global calibration
+    s = get_user_settings(current_user.id)
     if request.method == 'POST':
-        calibration.update(request.json)
-        return jsonify({"status": "ok", "calibration": calibration})
-    return jsonify(calibration)
+        j = request.json or {}
+        cal = s['calibration']
+        save_user_settings(current_user.id,
+            cal_sm=j.get('soil_moisture', cal['soil_moisture']),
+            cal_temp=j.get('temperature', cal['temperature']),
+            cal_hum=j.get('humidity',     cal['humidity']),
+        )
+        return jsonify({"status":"ok","calibration":get_user_settings(current_user.id)['calibration']})
+    return jsonify(s['calibration'])
 
 @app.route('/api/export/csv')
+@login_required
 def export_csv():
-    hours = min(int(request.args.get('hours', 24)), 168)  # max 7 days
-    readings = get_readings(hours, max_rows=500)           # cap at 500 rows
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=['timestamp', 'soil_moisture', 'temperature', 'humidity'])
-    writer.writeheader()
-    writer.writerows(readings)
-    output.seek(0)
-    return send_file(
-        io.BytesIO(output.getvalue().encode()),
-        mimetype='text/csv',
-        as_attachment=True,
-        download_name=f'agri_report_{datetime.now().strftime("%Y%m%d_%H%M")}.csv'
-    )
+    hours    = min(int(request.args.get('hours', 24)), 168)
+    readings = get_readings(hours, max_rows=500, user_id=current_user.id)
+    output   = io.StringIO()
+    writer   = csv.DictWriter(output, fieldnames=['timestamp','soil_moisture','temperature','humidity'])
+    writer.writeheader(); writer.writerows(readings); output.seek(0)
+    return send_file(io.BytesIO(output.getvalue().encode()), mimetype='text/csv',
+                     as_attachment=True, download_name=f'agri_report_{datetime.now().strftime("%Y%m%d_%H%M")}.csv')
 
 @app.route('/api/export/pdf')
+@login_required
 def export_pdf():
-    hours = min(int(request.args.get('hours', 24)), 168)  # max 7 days
-    readings = get_readings(hours, max_rows=200)           # cap at 200 rows for PDF
+    hours = min(int(request.args.get('hours', 24)), 168)
+    readings = get_readings(hours, max_rows=200, user_id=current_user.id)
     weather = fetch_weather()
-    sensor = get_latest_sensor()
-    insights = generate_insights(sensor, weather)
+    sensor = get_latest_sensor(current_user.id)
+    s = get_user_settings(current_user.id)
+    th = s['thresholds']
+    insights = generate_insights(sensor, weather, th)
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.75*inch)
@@ -492,9 +480,9 @@ def export_pdf():
     story.append(Paragraph("Current Sensor Readings", styles['Heading2']))
     sensor_data = [
         ['Metric', 'Value', 'Status'],
-        ['Soil Moisture', f"{sensor['soil_moisture']}%", 'OK' if THRESHOLDS['soil_moisture']['min'] <= sensor['soil_moisture'] <= THRESHOLDS['soil_moisture']['max'] else 'ALERT'],
-        ['Temperature', f"{sensor['temperature']}°C", 'OK' if THRESHOLDS['temperature']['min'] <= sensor['temperature'] <= THRESHOLDS['temperature']['max'] else 'ALERT'],
-        ['Humidity', f"{sensor['humidity']}%", 'OK' if THRESHOLDS['humidity']['min'] <= sensor['humidity'] <= THRESHOLDS['humidity']['max'] else 'ALERT'],
+        ['Soil Moisture', f"{sensor['soil_moisture']}%", 'OK' if th['soil_moisture']['min'] <= sensor['soil_moisture'] <= th['soil_moisture']['max'] else 'ALERT'],
+        ['Temperature', f"{sensor['temperature']}°C", 'OK' if th['temperature']['min'] <= sensor['temperature'] <= th['temperature']['max'] else 'ALERT'],
+        ['Humidity', f"{sensor['humidity']}%", 'OK' if th['humidity']['min'] <= sensor['humidity'] <= th['humidity']['max'] else 'ALERT'],
     ]
     t = Table(sensor_data, colWidths=[2*inch, 2*inch, 2*inch])
     t.setStyle(TableStyle([
@@ -536,6 +524,7 @@ def export_pdf():
 # ============================================================
 
 @app.route('/api/predict', methods=['POST'])
+@login_required
 def api_predict():
     if _ai_model is None:
         return jsonify({'error': 'AI model not loaded on server'}), 503
@@ -566,15 +555,16 @@ def api_predict():
 
         # Save to DB
         try:
-            conn = sqlite3.connect(DB_PATH)
-            conn.execute(
-                'INSERT INTO disease_predictions (device_id,disease,crop,confidence,severity) VALUES (?,?,?,?,?)',
-                ('cropguard_01', 'Healthy' if healthy else disease, crop, float(conf), 'None' if healthy else 'High')
-            )
-            conn.commit()
-            conn.close()
-        except Exception:
-            pass
+            db.save_disease_prediction({
+                "device_id": f"user_{current_user.id}",
+                "user_id": current_user.id,
+                "disease": 'Healthy' if healthy else disease,
+                "crop": crop,
+                "confidence": float(conf),
+                "severity": 'None' if healthy else 'High'
+            })
+        except Exception as de:
+            print("DB save error in predict:", de)
 
         # Fusion
         fusion_data = None
@@ -583,10 +573,9 @@ def api_predict():
                 from backend.fusion_engine import fuse, SoilState, WeatherState
             except ImportError:
                 from fusion_engine import fuse, SoilState, WeatherState
-            latest = get_latest_sensor()          # defined locally in dashboard_api.py
+            latest = get_latest_sensor(current_user.id)
             if latest and latest.get('temperature') is not None:
-                # Compute 7-day averages using the local get_readings() helper
-                readings_7d = get_readings(hours=168, max_rows=2000)
+                readings_7d = get_readings(hours=168, max_rows=2000, user_id=current_user.id)
                 if readings_7d:
                     f_temp = sum(r['temperature']   for r in readings_7d) / len(readings_7d)
                     f_hum  = sum(r['humidity']       for r in readings_7d) / len(readings_7d)
@@ -649,29 +638,92 @@ def api_predict():
 # ============================================================
 
 @app.route('/api/disease-history')
+@login_required
 def api_disease_history():
     limit = min(int(request.args.get('limit', 100)), 500)
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            f'SELECT * FROM disease_predictions ORDER BY timestamp DESC LIMIT {limit}'
-        ).fetchall()
-        conn.close()
-        return jsonify([dict(r) for r in rows])
+        rows = db.get_disease_history(limit, current_user.id)
+        return jsonify(rows)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 # ============================================================
-# PAGE ROUTES (Jinja2 templates)
+# PAGE ROUTES & AUTHENTICATION ENDPOINTS
 # ============================================================
+
+@app.route('/login')
+def page_login():
+    if current_user.is_authenticated:
+        return redirect(url_for('page_dashboard'))
+    return render_template('login.html')
+
+@app.route('/auth/supabase-login', methods=['POST'])
+def auth_supabase_login():
+    j = request.json or {}
+    access_token = j.get('access_token')
+    if not access_token:
+        log.error("Supabase Login: No access_token provided in request")
+        return jsonify({"error": "No token provided"}), 400
+
+    try:
+        url = f"{db.SUPABASE_URL}/auth/v1/user"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "apikey": db.SUPABASE_KEY
+        }
+        log.info(f"Supabase Login: Verifying token with {url}")
+        res = requests.get(url, headers=headers, timeout=5)
+        if not res.ok:
+            log.error(f"Supabase Login: Token verification failed ({res.status_code}): {res.text}")
+            return jsonify({"error": f"Invalid token: {res.text}"}), 401
+        
+        user_info = res.json()
+        google_id = user_info.get('id')
+        email = user_info.get('email')
+        
+        log.info(f"Supabase Login: Token verified for user {email}")
+        
+        meta = user_info.get('user_metadata', {})
+        name = meta.get('full_name') or meta.get('name') or email.split('@')[0]
+        avatar_url = meta.get('avatar_url') or meta.get('picture')
+
+        if not google_id:
+            log.error("Supabase Login: Google ID missing from user_info")
+            return jsonify({"error": "Invalid user identity"}), 400
+
+        user_row = db.create_or_update_user(google_id, email, name, avatar_url)
+        if not user_row:
+            log.error(f"Supabase Login: Failed to sync user {email} to database")
+            return jsonify({"error": "Failed to sync user to database. Check if RLS is disabled."}), 500
+
+        user = User(user_row['id'], user_row['google_id'], user_row['email'], user_row['name'], user_row['avatar_url'])
+        login_user(user, remember=True)
+        log.info(f"Supabase Login: Successfully logged in user {email} (ID: {user.id})")
+        
+        # AUTOMATIC LINKING: When a user logs in, link the local device to them immediately
+        db.set_device_owner("local_usb", user.id)
+        
+        return jsonify({"status": "success", "user": {
+            "id": user.id, "email": user.email, "name": user.name, "avatar_url": user.avatar_url
+        }})
+    except Exception as e:
+        log.error(f"Supabase Login: Internal exception: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/logout')
+@login_required
+def page_logout():
+    logout_user()
+    return redirect(url_for('page_login'))
+
 
 @app.route('/')
 @app.route('/soil')
 @app.route('/disease')
 @app.route('/history')
 @app.route('/preferences')
+@login_required
 def page_dashboard():
     return render_template('dashboard.html')
 
