@@ -82,38 +82,46 @@
 .w-col-side { flex:1; min-width:280px; display:flex; flex-direction:column; gap:16px; }
 @media (max-width:860px) { .w-col-main, .w-col-side { flex:1 1 100%; min-width:0; } }
 .w-card { background:var(--bg1); border:1px solid var(--border1); border-radius:12px; padding:20px; height:100%; }
-.w-card-title { font-size:13px; font-weight:600; color:var(--text2); margin-bottom:14px; text-transform:uppercase; letter-spacing:.05em; }
-.w-curr-top   { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; }
-.w-curr-temp  { font-size:3rem; font-weight:800; color:var(--text1); }
-.w-curr-unit  { font-size:1.2rem; color:var(--text2); }
-.w-curr-icon  { font-size:2.5rem; }
-.w-curr-desc  { font-size:13px; color:var(--text2); margin-top:4px; }
-.w-curr-feels { font-size:12px; color:var(--text2); margin-top:4px; }
+.w-card-title { font-size:13px; font-weight:600; color:var(--text2); margin-bottom:18px; text-transform:uppercase; letter-spacing:.08em; display:flex; align-items:center; gap:8px; }
+.w-curr-top   { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; gap:16px; }
+.w-curr-temp  { font-size:3.2rem; font-weight:800; color:var(--text1); line-height:1.1; }
+.w-curr-unit  { font-size:1.2rem; color:var(--text2); margin-left:0px; }
+.w-curr-icon  { font-size:3rem; line-height:1; }
+.w-curr-desc  { font-size:13px; color:var(--text2); margin-top:6px; font-weight:500; }
+.w-curr-feels { font-size:12px; color:var(--text3); margin-top:6px; }
 .w-details-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
-.w-detail-item { background:var(--bg2); border-radius:8px; padding:10px; }
-.w-detail-label { font-size:10px; color:var(--text3); display:block; margin-bottom:4px; text-transform:uppercase; }
+.w-detail-item { background:var(--bg2); border-radius:8px; padding:12px; border:1px solid var(--border1); transition:all .2s; }
+.w-detail-item:hover { background:var(--bg3); border-color:var(--border2); }
+.w-detail-label { font-size:10px; color:var(--text3); display:block; margin-bottom:6px; text-transform:uppercase; letter-spacing:.5px; font-weight:500; }
 .w-detail-val   { font-size:15px; font-weight:600; color:var(--text1); }
-.w-hourly-scroll { display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; }
-.w-hourly-item   { flex-shrink:0; text-align:center; background:var(--bg2); border-radius:10px; padding:10px 14px; min-width:68px; }
-.w-hourly-time, .w-hourly-temp, .w-hourly-pop { font-size:11px; color:var(--text2); }
-.w-hourly-icon   { font-size:20px; margin:6px 0; }
-.w-hourly-temp   { font-size:13px; font-weight:600; color:var(--text1); }
-.w-daily-list { display:flex; flex-direction:column; gap:8px; }
-.w-daily-item { display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid var(--border1); }
-.w-daily-day  { font-size:12px; color:var(--text2); width:36px; }
-.w-daily-icon { font-size:18px; }
-.w-daily-temps { margin-left:auto; display:flex; gap:10px; }
-.w-daily-max  { font-size:13px; font-weight:600; color:var(--text1); }
-.w-daily-min  { font-size:13px; color:var(--text2); }
-.w-sun-grid   { display:flex; justify-content:space-around; padding:8px 0; }
-.w-sun-item   { text-align:center; }
-.w-sun-icon   { font-size:24px; margin-bottom:4px; }
-.w-sun-time   { font-size:16px; font-weight:700; color:var(--text1); }
-.w-sun-label  { font-size:10px; color:var(--text3); text-transform:uppercase; }
-.aqi-badge    { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; }
-.aqi-good { background:rgba(45,138,78,.2); color:var(--green); }
-.aqi-mod  { background:rgba(214,158,46,.2); color:var(--amber); }
-.aqi-poor { background:rgba(229,62,62,.2); color:var(--red); }
+.w-hourly-scroll { display:flex; gap:12px; overflow-x:auto; padding-bottom:12px; padding-right:8px; }
+.w-hourly-scroll::-webkit-scrollbar { height:4px; }
+.w-hourly-scroll::-webkit-scrollbar-track { background:transparent; }
+.w-hourly-scroll::-webkit-scrollbar-thumb { background:var(--bg3); border-radius:2px; }
+.w-hourly-item   { flex-shrink:0; text-align:center; background:var(--bg2); border-radius:10px; padding:12px 14px; min-width:72px; border:1px solid var(--border1); transition:background .2s; }
+.w-hourly-item:hover { background:var(--bg3); }
+.w-hourly-time   { font-size:10px; color:var(--text3); display:block; margin-bottom:6px; }
+.w-hourly-icon   { font-size:22px; margin:4px 0; }
+.w-hourly-temp   { font-size:12px; font-weight:600; color:var(--text1); display:block; }
+.w-hourly-pop    { font-size:10px; color:var(--text3); display:block; margin-top:4px; }
+.w-daily-list { display:flex; flex-direction:column; gap:0; }
+.w-daily-item { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--border1); transition:background .2s; }
+.w-daily-item:hover { background:rgba(45,138,78,.03); }
+.w-daily-item:last-child { border-bottom:none; }
+.w-daily-day  { font-size:11px; color:var(--text2); width:48px; font-weight:500; }
+.w-daily-icon { font-size:20px; width:24px; }
+.w-daily-temps { margin-left:auto; display:flex; gap:14px; align-items:center; }
+.w-daily-max  { font-size:13px; font-weight:600; color:var(--text1); width:36px; }
+.w-daily-min  { font-size:12px; color:var(--text3); width:36px; }
+.w-sun-grid   { display:flex; justify-content:space-around; padding:12px 0; gap:16px; }
+.w-sun-item   { text-align:center; flex:1; }
+.w-sun-icon   { font-size:28px; margin-bottom:8px; }
+.w-sun-time   { font-size:16px; font-weight:700; color:var(--text1); letter-spacing:-.5px; }
+.w-sun-label  { font-size:10px; color:var(--text3); text-transform:uppercase; margin-top:4px; letter-spacing:.5px; }
+.aqi-badge    { display:inline-block; padding:4px 12px; border-radius:20px; font-size:11px; font-weight:700; letter-spacing:.5px; }
+.aqi-good { background:rgba(45,138,78,.2); color:var(--green); border:1px solid rgba(45,138,78,.4); }
+.aqi-mod  { background:rgba(214,158,46,.2); color:var(--amber); border:1px solid rgba(214,158,46,.4); }
+.aqi-poor { background:rgba(229,62,62,.2); color:var(--red); border:1px solid rgba(229,62,62,.4); }
 
 /* ── USB connect button ── */
 #btn-connect-usb {
