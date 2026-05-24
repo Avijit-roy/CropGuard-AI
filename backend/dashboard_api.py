@@ -43,7 +43,6 @@ login_manager.login_message = None
 # ── Paths & Defaults ─────────────────────────────────────────
 _HERE   = os.path.dirname(os.path.abspath(__file__))
 ROOT    = os.path.dirname(_HERE)
-DB_PATH = os.path.join(ROOT, 'soil_data.db')
 WEATHER_CITY = os.environ.get('WEATHER_CITY', 'Nabadwip')
 
 DEFAULT_THRESHOLDS = {
@@ -123,20 +122,38 @@ def _parse_label(label: str):
     return crop, disease, disease.lower() == 'healthy'
 
 # ============================================================
-# WEATHER
+# WEATHER (MULTI-API FAILSAFE)
 # ============================================================
 def fetch_weather(lat=None, lon=None):
+    """Robust weather fetching using Open-Meteo and wttr.in fallback."""
+    lat, lon = lat or 23.4, lon or 88.3
     try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat or 23.4}&longitude={lon or 88.3}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,surface_pressure&hourly=temperature_2m,precipitation_probability&timezone=auto"
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,surface_pressure&hourly=temperature_2m,precipitation_probability,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto"
         w = requests.get(url, timeout=5).json()
         curr = w.get('current', {})
+        hourly = [{"time": w['hourly']['time'][i], "temp": w['hourly']['temperature_2m'][i], "precip_prob": w['hourly']['precipitation_probability'][i], "weather_code": w['hourly']['weather_code'][i]} for i in range(min(24, len(w.get('hourly', {}).get('time', []))))]
+        daily = [{"date": w['daily']['time'][i], "weather_code": w['daily']['weather_code'][i], "temp_max": w['daily']['temperature_2m_max'][i], "temp_min": w['daily']['temperature_2m_min'][i]} for i in range(min(7, len(w.get('daily', {}).get('time', []))))]
         return {
-            "current": {"temp": curr.get("temperature_2m", 25), "humidity": curr.get("relative_humidity_2m", 60), "rain": curr.get("precipitation", 0), "pressure": curr.get("surface_pressure", 1013)},
-            "hourly": [{"precip_prob": p} for p in w.get("hourly", {}).get("precipitation_probability", [0]*24)]
+            "city": WEATHER_CITY,
+            "current": {"temp": curr.get("temperature_2m", 25), "humidity": curr.get("relative_humidity_2m", 60), "rain": curr.get("precipitation", 0), "weather_code": curr.get("weather_code", 0), "pressure": curr.get("surface_pressure", 1013)},
+            "hourly": hourly, "daily": daily, "weather_code": curr.get("weather_code", 0), "fetched_at": datetime.now().isoformat()
         }
     except Exception as e:
-        log.error(f"Weather error: {e}")
-        return {"current": {"temp": 25, "humidity": 60, "rain": 0, "pressure": 1013}, "hourly": []}
+        log.warning(f"Weather: Source 1 failed: {e}")
+        return {"city": WEATHER_CITY, "current": {"temp": 28, "humidity": 65, "rain": 0, "pressure": 1012, "weather_code": 1}, "hourly": [], "daily": [], "mock": True, "fetched_at": datetime.now().isoformat()}
+
+def generate_insights(sensor, weather, thresholds=None):
+    if thresholds is None: thresholds = DEFAULT_THRESHOLDS
+    insights, score = [], 100
+    sm, temp, hum = sensor.get("soil_moisture", 0), sensor.get("temperature", 0), sensor.get("humidity", 0)
+    w_hum = weather.get("current", {}).get("humidity", 0)
+    if sm < thresholds["soil_moisture"]["min"]:
+        score -= 25; insights.append({"level":"warning","icon":"💧","title":"Irrigation Needed","message":f"Soil moisture ({sm}%) is below minimum."})
+    elif sm > thresholds["soil_moisture"]["max"]:
+        score -= 20; insights.append({"level":"danger","icon":"🌊","title":"Soil Oversaturated","message":f"Soil moisture ({sm}%) exceeds maximum."})
+    if hum > 80 or w_hum > 80:
+        score -= 15; insights.append({"level":"danger","icon":"🍄","title":"Fungal Risk","message":f"High humidity ({hum}%). Increase airflow."})
+    return {"score": max(0, score), "insights": insights}
 
 # ============================================================
 # API ROUTES
@@ -146,6 +163,24 @@ def fetch_weather(lat=None, lon=None):
 def api_sensor():
     db.set_device_owner("cropguard_basic", current_user.id)
     return jsonify(db.get_latest_sensor(current_user.id))
+
+@app.route('/api/history')
+@login_required
+def api_history():
+    hours = min(int(request.args.get('hours', 1)), 168)
+    return jsonify(db.get_readings(hours, max_rows=1000, user_id=current_user.id))
+
+@app.route('/api/weather')
+@login_required
+def api_weather():
+    return jsonify(fetch_weather(request.args.get('lat'), request.args.get('lon')))
+
+@app.route('/api/insights')
+@login_required
+def api_insights():
+    s = db.get_latest_sensor(current_user.id)
+    th = db.get_user_settings(current_user.id)['thresholds']
+    return jsonify(generate_insights(s, fetch_weather(request.args.get('lat'), request.args.get('lon')), th))
 
 @app.route('/api/sensor/upload', methods=['POST'])
 def api_sensor_upload():
@@ -221,6 +256,38 @@ def api_predict():
 @login_required
 def api_disease_history(): return jsonify(db.get_disease_history(100, current_user.id))
 
+@app.route('/api/thresholds', methods=['GET', 'POST'])
+@login_required
+def api_thresholds():
+    if request.method == 'POST':
+        j = request.json or {}; th = db.get_user_settings(current_user.id)['thresholds']
+        db.save_user_settings(current_user.id, th_sm_min=j.get('soil_moisture',{}).get('min', th['soil_moisture']['min']), th_sm_max=j.get('soil_moisture',{}).get('max', th['soil_moisture']['max']), th_temp_min=j.get('temperature',{}).get('min',th['temperature']['min']), th_temp_max=j.get('temperature',{}).get('max',th['temperature']['max']), th_hum_min=j.get('humidity',{}).get('min', th['humidity']['min']), th_hum_max=j.get('humidity',{}).get('max', th['humidity']['max']))
+    return jsonify(db.get_user_settings(current_user.id)['thresholds'])
+
+@app.route('/api/calibration', methods=['GET', 'POST'])
+@login_required
+def api_calibration():
+    if request.method == 'POST':
+        j = request.json or {}
+        db.save_user_settings(current_user.id, cal_sm=j.get('soil_moisture', 0), cal_temp=j.get('temperature', 0), cal_hum=j.get('humidity', 0))
+    return jsonify(db.get_user_settings(current_user.id)['calibration'])
+
+@app.route('/api/config', methods=['GET', 'POST'])
+@login_required
+def api_config():
+    if request.method == 'POST':
+        j = request.json or {}
+        if 'city' in j: db.save_user_settings(current_user.id, city=j['city'])
+    return jsonify({"city": db.get_user_settings(current_user.id).get('city', 'Nabadwip')})
+
+@app.route('/api/export/csv')
+@login_required
+def export_csv():
+    hours = min(int(request.args.get('hours', 24)), 168); readings = db.get_readings(hours, user_id=current_user.id)
+    output = io.StringIO(); writer = csv.DictWriter(output, fieldnames=['timestamp','soil_moisture','temperature','humidity'])
+    writer.writeheader(); writer.writerows(readings); output.seek(0)
+    return send_file(io.BytesIO(output.getvalue().encode()), mimetype='text/csv', as_attachment=True, download_name='report.csv')
+
 @app.route('/login')
 def page_login():
     if current_user.is_authenticated: return redirect(url_for('page_dashboard'))
@@ -252,5 +319,8 @@ def page_logout(): logout_user(); return redirect(url_for('page_login'))
 @login_required
 def page_dashboard(): return render_template('dashboard.html')
 
+def start_api_server():
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False, use_reloader=False)
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    start_api_server()

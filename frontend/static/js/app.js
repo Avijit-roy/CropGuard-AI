@@ -1,3 +1,15 @@
+function wmo(c) {
+  const m = {
+    0:{d:'Clear sky',i:'☀️'}, 1:{d:'Mainly clear',i:'🌤️'}, 2:{d:'Partly cloudy',i:'⛅'}, 3:{d:'Overcast',i:'☁️'},
+    45:{d:'Fog',i:'🌫️'}, 48:{d:'Depositing rime fog',i:'🌫️'}, 51:{d:'Drizzle: Light',i:'🌦️'}, 53:{d:'Drizzle: Moderate',i:'🌦️'},
+    55:{d:'Drizzle: Dense',i:'🌦️'}, 61:{d:'Rain: Slight',i:'🌧️'}, 63:{d:'Rain: Moderate',i:'🌧️'}, 65:{d:'Rain: Heavy',i:'🌧️'},
+    71:{d:'Snow fall: Slight',i:'🌨️'}, 73:{d:'Snow fall: Moderate',i:'🌨️'}, 75:{d:'Snow fall: Heavy',i:'🌨️'},
+    80:{d:'Rain showers: Slight',i:'🌦️'}, 81:{d:'Rain showers: Moderate',i:'🌦️'}, 82:{d:'Rain showers: Violent',i:'⛈️'},
+    95:{d:'Thunderstorm: Slight or moderate',i:'⛈️'}, 96:{d:'Thunderstorm with slight hail',i:'⛈️'}, 99:{d:'Thunderstorm with heavy hail',i:'⛈️'}
+  };
+  return m[c] || {d:'Unknown',i:'🌡️'};
+}
+
 // ─── State ─────────────────────────────────────────
 const state = {
   sensor:     { soil_moisture:0, temperature:0, humidity:0, timestamp:null, connected:false },
