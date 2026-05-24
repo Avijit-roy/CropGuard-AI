@@ -213,9 +213,6 @@ function setMetric(_key, val, unit, valId, min, max, scale, barId, badgeId, card
 }
 
 // ─── Weather ─────────────────────────────────────────
-const WMO = {0:{i:'☀️',d:'Clear sky'},1:{i:'🌤️',d:'Mainly clear'},2:{i:'⛅',d:'Partly cloudy'},3:{i:'☁️',d:'Overcast'},45:{i:'🌫️',d:'Fog'},51:{i:'🌧️',d:'Drizzle'},63:{i:'🌧️',d:'Rain'},80:{i:'🌦️',d:'Showers'},95:{i:'⛈️',d:'Thunderstorm'}};
-const wmo = code => WMO[code] || {i:'☁️',d:'Unknown'};
-
 async function fetchWeather() {
   try {
     let url = BASE + '/api/weather';
