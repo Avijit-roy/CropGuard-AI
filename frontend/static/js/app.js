@@ -136,9 +136,9 @@ async function fetchSensor() {
     lastFetchTime = Date.now();
     const lbl = new Date().toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     const ts  = d.timestamp || new Date().toISOString();
-    const sm   = d.soil_moisture;
-    const temp = d.temperature;
-    const hum  = d.humidity;
+    const sm   = d.connected ? d.soil_moisture : 0;
+    const temp = d.connected ? d.temperature   : 0;
+    const hum  = d.connected ? d.humidity      : 0;
 
     pushChart(miniSm,   lbl, sm,   40, ts);
     pushChart(miniTemp, lbl, temp, 40, ts);
@@ -168,9 +168,9 @@ function updateSensorUI(d) {
   set('temp-opt-label', `Opt: ${th.temperature.min}-${th.temperature.max}°`);
   set('hum-opt-label',  `Opt: ${th.humidity.min}-${th.humidity.max}%`);
 
-  const sm   = d.soil_moisture;
-  const temp = d.temperature;
-  const hum  = d.humidity;
+  const sm   = d.connected ? d.soil_moisture : 0;
+  const temp = d.connected ? d.temperature   : 0;
+  const hum  = d.connected ? d.humidity      : 0;
 
   setMetric('sm',   sm,   '%',  'val-sm',   th.soil_moisture.min, th.soil_moisture.max, 100, 'bar-sm',   'badge-sm',   'card-sm');
   setMetric('temp', temp, '°C', 'val-temp', th.temperature.min,   th.temperature.max,    50, 'bar-temp', 'badge-temp', 'card-temp');
