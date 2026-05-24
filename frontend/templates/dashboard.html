@@ -1,144 +1,590 @@
-{% extends "base.html" %}
-{% block title %}Dashboard — CropGuard AI{% endblock %}
-{% block page_title %}<span id="app-title-dynamic">🌱 Live Soil Monitor</span>{% endblock %}
-
-{% block head %}
+{% extends "base.html" %} {% block title %}Dashboard — CropGuard AI{% endblock
+%} {% block page_title %}<span id="app-title-dynamic">🌱 Live Soil Monitor</span
+>{% endblock %} {% block head %}
 <!-- Cropper CSS for disease page -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
+<link
+  rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css"
+/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
-/* ── In-page tab bar (Soil Monitor) ── */
-.soil-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:1px solid var(--border1); padding-bottom:0; }
-.soil-tab  { padding:9px 18px; font-size:13px; font-weight:500; color:var(--text2); cursor:pointer;
-             border-bottom:2px solid transparent; transition:all .2s; border-radius:6px 6px 0 0; }
-.soil-tab:hover { color:var(--text1); background:var(--bg2); }
-.soil-tab.active { color:var(--green); border-bottom-color:var(--green); font-weight:600; }
+  /* ── In-page tab bar (Soil Monitor) ── */
+  .soil-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border1);
+    padding-bottom: 0;
+  }
+  .soil-tab {
+    padding: 9px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text2);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    border-radius: 6px 6px 0 0;
+  }
+  .soil-tab:hover {
+    color: var(--text1);
+    background: var(--bg2);
+  }
+  .soil-tab.active {
+    color: var(--green);
+    border-bottom-color: var(--green);
+    font-weight: 600;
+  }
 
-/* ── Views (Soil Monitor) ── */
-.soil-view { display:none; }
-.soil-view.active { display:block; }
+  /* ── Views (Soil Monitor) ── */
+  .soil-view {
+    display: none;
+  }
+  .soil-view.active {
+    display: block;
+  }
 
-/* ── Metric cards ── */
-.sensor-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:20px; }
-.metric-card {
-  background:var(--bg1); border:1px solid var(--border1); border-radius:12px;
-  padding:20px; position:relative; overflow:hidden;
-  border-top:3px solid var(--card-accent, var(--green));
-  transition:box-shadow .2s;
-}
-.metric-card:hover { box-shadow:0 4px 20px rgba(0,0,0,.3); }
-.metric-label { font-size:11px; font-weight:600; letter-spacing:.08em; color:var(--text2); text-transform:uppercase; margin-bottom:8px; }
-.metric-value { font-size:2.2rem; font-weight:700; color:var(--text1); line-height:1; }
-.metric-unit  { font-size:1rem; font-weight:400; color:var(--text2); margin-left:2px; }
-.metric-badge { margin-top:12px; display:inline-block; font-size:11px; padding:3px 10px; border-radius:20px; font-weight:600; }
-.badge-ok     { background:rgba(45,138,78,.15); color:var(--green); }
-.badge-warn   { background:rgba(214,158,46,.15); color:var(--amber); }
-.badge-danger { background:rgba(229,62,62,.15);  color:var(--red); }
+  /* ── Metric cards ── */
+  .sensor-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .metric-card {
+    background: var(--bg1);
+    border: 1px solid var(--border1);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    border-top: 3px solid var(--card-accent, var(--green));
+    transition: box-shadow 0.2s;
+  }
+  .metric-card:hover {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+  .metric-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text2);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .metric-value {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--text1);
+    line-height: 1;
+  }
+  .metric-unit {
+    font-size: 1rem;
+    font-weight: 400;
+    color: var(--text2);
+    margin-left: 2px;
+  }
+  .metric-badge {
+    margin-top: 12px;
+    display: inline-block;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+  }
+  .badge-ok {
+    background: rgba(45, 138, 78, 0.15);
+    color: var(--green);
+  }
+  .badge-warn {
+    background: rgba(214, 158, 46, 0.15);
+    color: var(--amber);
+  }
+  .badge-danger {
+    background: rgba(229, 62, 62, 0.15);
+    color: var(--red);
+  }
 
-/* ── Threshold bar ── */
-.threshold-bar-track { height:6px; background:var(--bg3); border-radius:3px; overflow:hidden; margin-top:10px; }
-.threshold-bar-fill  { height:100%; border-radius:3px; transition:width .5s, background-color .3s; }
-.threshold-markers   { display:flex; justify-content:space-between; font-size:10px; color:var(--text3); margin-top:4px; }
+  /* ── Threshold bar ── */
+  .threshold-bar-track {
+    height: 6px;
+    background: var(--bg3);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 10px;
+  }
+  .threshold-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition:
+      width 0.5s,
+      background-color 0.3s;
+  }
+  .threshold-markers {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 4px;
+  }
 
-/* ── Mini chart grid ── */
-.mini-chart-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:20px; }
-.mini-chart-card { background:var(--bg1); border:1px solid var(--border1); border-radius:12px; padding:16px; }
-.mini-chart-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-.mini-chart-title  { font-size:13px; font-weight:600; color:var(--text1); }
-.mini-chart-val    { font-size:12px; color:var(--text2); }
-.mini-chart-wrap { position:relative; height:110px; }
+  /* ── Mini chart grid ── */
+  .mini-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .mini-chart-card {
+    background: var(--bg1);
+    border: 1px solid var(--border1);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .mini-chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .mini-chart-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text1);
+  }
+  .mini-chart-val {
+    font-size: 12px;
+    color: var(--text2);
+  }
+  .mini-chart-wrap {
+    position: relative;
+    height: 110px;
+  }
 
-/* ── Full chart ── */
-.full-chart-wrap { position:relative; height:220px; }
-.range-pills { display:flex; gap:8px; margin-bottom:20px; }
-.pill { padding:6px 14px; border-radius:20px; font-size:12px; cursor:pointer;
-        background:var(--bg2); color:var(--text2); border:1px solid var(--border1); transition:all .2s; }
-.pill:hover  { background:var(--bg3); color:var(--text1); }
-.pill.active { background:var(--green); color:#fff; border-color:var(--green); font-weight:600; }
+  /* ── Full chart ── */
+  .full-chart-wrap {
+    position: relative;
+    height: 220px;
+  }
+  .range-pills {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .pill {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    background: var(--bg2);
+    color: var(--text2);
+    border: 1px solid var(--border1);
+    transition: all 0.2s;
+  }
+  .pill:hover {
+    background: var(--bg3);
+    color: var(--text1);
+  }
+  .pill.active {
+    background: var(--green);
+    color: #fff;
+    border-color: var(--green);
+    font-weight: 600;
+  }
 
-/* ── Insight cards ── */
-.insights-list { display:flex; flex-direction:column; gap:12px; }
-.insight-card  { display:flex; align-items:flex-start; gap:14px; padding:14px 18px;
-                 border-radius:10px; border:1px solid var(--border1); background:var(--bg1); }
-.insight-card.critical { border-color:var(--red); background:rgba(229,62,62,.06); }
-.insight-card.warning  { border-color:var(--amber); background:rgba(214,158,46,.06); }
-.insight-card.info     { border-color:#3182ce; background:rgba(49,130,206,.06); }
-.insight-card.success  { border-color:var(--green); background:rgba(45,138,78,.06); }
-.insight-icon  { font-size:22px; flex-shrink:0; margin-top:2px; }
-.insight-title { font-size:13px; font-weight:600; color:var(--text1); margin-bottom:4px; }
-.insight-msg   { font-size:12px; color:var(--text2); line-height:1.5; }
+  /* ── Insight cards ── */
+  .insights-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .insight-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--border1);
+    background: var(--bg1);
+  }
+  .insight-card.critical {
+    border-color: var(--red);
+    background: rgba(229, 62, 62, 0.06);
+  }
+  .insight-card.warning {
+    border-color: var(--amber);
+    background: rgba(214, 158, 46, 0.06);
+  }
+  .insight-card.info {
+    border-color: #3182ce;
+    background: rgba(49, 130, 206, 0.06);
+  }
+  .insight-card.success {
+    border-color: var(--green);
+    background: rgba(45, 138, 78, 0.06);
+  }
+  .insight-icon {
+    font-size: 22px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .insight-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text1);
+    margin-bottom: 4px;
+  }
+  .insight-msg {
+    font-size: 12px;
+    color: var(--text2);
+    line-height: 1.5;
+  }
 
-/* ── Alert bar ── */
-.alert-bar { position:fixed; bottom:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:8px; max-width:360px; }
-.alert-item { display:flex; align-items:flex-start; gap:12px; padding:12px 16px;
-              border-radius:10px; background:var(--bg1); border:1px solid var(--border1);
-              box-shadow:0 4px 20px rgba(0,0,0,.4); animation:slideInUp .25s ease; }
-.alert-close { margin-left:auto; cursor:pointer; color:var(--text3); font-size:18px; line-height:1; }
+  /* ── Alert bar ── */
+  .alert-bar {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 360px;
+  }
+  .alert-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: var(--bg1);
+    border: 1px solid var(--border1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    animation: slideInUp 0.25s ease;
+  }
+  .alert-close {
+    margin-left: auto;
+    cursor: pointer;
+    color: var(--text3);
+    font-size: 18px;
+    line-height: 1;
+  }
 
-/* ── Weather ── */
-.w-row { display:flex; gap:20px; flex-wrap:wrap; }
-.w-col-main { flex:2; min-width:340px; display:flex; flex-direction:column; gap:16px; }
-.w-col-side { flex:1; min-width:280px; display:flex; flex-direction:column; gap:16px; }
-@media (max-width:860px) { .w-col-main, .w-col-side { flex:1 1 100%; min-width:0; } }
-.w-card { background:var(--bg1); border:1px solid var(--border1); border-radius:12px; padding:20px; height:100%; }
-.w-card-title { font-size:13px; font-weight:600; color:var(--text2); margin-bottom:18px; text-transform:uppercase; letter-spacing:.08em; display:flex; align-items:center; gap:8px; }
-.w-curr-top   { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; gap:16px; }
-.w-curr-temp  { font-size:3.2rem; font-weight:800; color:var(--text1); line-height:1.1; }
-.w-curr-unit  { font-size:1.2rem; color:var(--text2); margin-left:0px; }
-.w-curr-icon  { font-size:3rem; line-height:1; }
-.w-curr-desc  { font-size:13px; color:var(--text2); margin-top:6px; font-weight:500; }
-.w-curr-feels { font-size:12px; color:var(--text3); margin-top:6px; }
-.w-details-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
-.w-detail-item { background:var(--bg2); border-radius:8px; padding:12px; border:1px solid var(--border1); transition:all .2s; }
-.w-detail-item:hover { background:var(--bg3); border-color:var(--border2); }
-.w-detail-label { font-size:10px; color:var(--text3); display:block; margin-bottom:6px; text-transform:uppercase; letter-spacing:.5px; font-weight:500; }
-.w-detail-val   { font-size:15px; font-weight:600; color:var(--text1); }
-.w-hourly-scroll { display:flex; gap:12px; overflow-x:auto; padding-bottom:12px; padding-right:8px; }
-.w-hourly-scroll::-webkit-scrollbar { height:4px; }
-.w-hourly-scroll::-webkit-scrollbar-track { background:transparent; }
-.w-hourly-scroll::-webkit-scrollbar-thumb { background:var(--bg3); border-radius:2px; }
-.w-hourly-item   { flex-shrink:0; text-align:center; background:var(--bg2); border-radius:10px; padding:12px 14px; min-width:72px; border:1px solid var(--border1); transition:background .2s; }
-.w-hourly-item:hover { background:var(--bg3); }
-.w-hourly-time   { font-size:10px; color:var(--text3); display:block; margin-bottom:6px; }
-.w-hourly-icon   { font-size:22px; margin:4px 0; }
-.w-hourly-temp   { font-size:12px; font-weight:600; color:var(--text1); display:block; }
-.w-hourly-pop    { font-size:10px; color:var(--text3); display:block; margin-top:4px; }
-.w-daily-list { display:flex; flex-direction:column; gap:0; }
-.w-daily-item { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--border1); transition:background .2s; }
-.w-daily-item:hover { background:rgba(45,138,78,.03); }
-.w-daily-item:last-child { border-bottom:none; }
-.w-daily-day  { font-size:11px; color:var(--text2); width:48px; font-weight:500; }
-.w-daily-icon { font-size:20px; width:24px; }
-.w-daily-temps { margin-left:auto; display:flex; gap:14px; align-items:center; }
-.w-daily-max  { font-size:13px; font-weight:600; color:var(--text1); width:36px; }
-.w-daily-min  { font-size:12px; color:var(--text3); width:36px; }
-.w-sun-grid   { display:flex; justify-content:space-around; padding:12px 0; gap:16px; }
-.w-sun-item   { text-align:center; flex:1; }
-.w-sun-icon   { font-size:28px; margin-bottom:8px; }
-.w-sun-time   { font-size:16px; font-weight:700; color:var(--text1); letter-spacing:-.5px; }
-.w-sun-label  { font-size:10px; color:var(--text3); text-transform:uppercase; margin-top:4px; letter-spacing:.5px; }
-.aqi-badge    { display:inline-block; padding:4px 12px; border-radius:20px; font-size:11px; font-weight:700; letter-spacing:.5px; }
-.aqi-good { background:rgba(45,138,78,.2); color:var(--green); border:1px solid rgba(45,138,78,.4); }
-.aqi-mod  { background:rgba(214,158,46,.2); color:var(--amber); border:1px solid rgba(214,158,46,.4); }
-.aqi-poor { background:rgba(229,62,62,.2); color:var(--red); border:1px solid rgba(229,62,62,.4); }
+  /* ── Weather ── */
+  .w-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    width: 100%;
+  }
+  .w-col-main {
+    flex: 1 1 calc(65% - 8px);
+    min-width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .w-col-side {
+    flex: 1 1 calc(35% - 8px);
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  @media (max-width: 1000px) {
+    .w-row {
+      flex-direction: column;
+      gap: 16px;
+    }
+    .w-col-main,
+    .w-col-side {
+      flex: 1 1 100%;
+      min-width: 0;
+      width: 100%;
+    }
+  }
+  @media (max-width: 600px) {
+    .w-card {
+      padding: 16px;
+    }
+  }
+  .w-card {
+    background: var(--bg1);
+    border: 1px solid var(--border1);
+    border-radius: 12px;
+    padding: 18px;
+    height: 100%;
+    overflow: hidden;
+  }
+  .w-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text2);
+    margin-bottom: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    word-break: break-word;
+  }
+  .w-curr-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 16px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .w-curr-temp {
+    font-size: 2.8rem;
+    font-weight: 800;
+    color: var(--text1);
+    line-height: 1.1;
+  }
+  .w-curr-unit {
+    font-size: 1.1rem;
+    color: var(--text2);
+    margin-left: 0px;
+  }
+  .w-curr-icon {
+    font-size: 2.6rem;
+    line-height: 1;
+  }
+  .w-curr-desc {
+    font-size: 12px;
+    color: var(--text2);
+    margin-top: 4px;
+    font-weight: 500;
+  }
+  .w-curr-feels {
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 4px;
+  }
+  .w-details-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .w-detail-item {
+    background: var(--bg2);
+    border-radius: 8px;
+    padding: 10px;
+    border: 1px solid var(--border1);
+    transition: all 0.2s;
+  }
+  .w-detail-item:hover {
+    background: var(--bg3);
+    border-color: var(--border2);
+  }
+  .w-detail-label {
+    font-size: 9px;
+    color: var(--text3);
+    display: block;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-weight: 500;
+  }
+  .w-detail-val {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text1);
+  }
+  @media (max-width: 600px) {
+    .w-details-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  .w-hourly-scroll {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    padding-right: 4px;
+    max-width: 100%;
+  }
+  .w-hourly-scroll::-webkit-scrollbar {
+    height: 4px;
+  }
+  .w-hourly-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .w-hourly-scroll::-webkit-scrollbar-thumb {
+    background: var(--bg3);
+    border-radius: 2px;
+  }
+  .w-hourly-item {
+    flex-shrink: 0;
+    text-align: center;
+    background: var(--bg2);
+    border-radius: 9px;
+    padding: 10px 12px;
+    min-width: 66px;
+    border: 1px solid var(--border1);
+    transition: background 0.2s;
+  }
+  .w-hourly-item:hover {
+    background: var(--bg3);
+  }
+  .w-hourly-time {
+    font-size: 9px;
+    color: var(--text3);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .w-hourly-icon {
+    font-size: 20px;
+    margin: 3px 0;
+  }
+  .w-hourly-temp {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text1);
+    display: block;
+  }
+  .w-hourly-pop {
+    font-size: 9px;
+    color: var(--text3);
+    display: block;
+    margin-top: 3px;
+  }
+  .w-daily-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .w-daily-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border1);
+    transition: background 0.2s;
+  }
+  .w-daily-item:hover {
+    background: rgba(45, 138, 78, 0.03);
+  }
+  .w-daily-item:last-child {
+    border-bottom: none;
+  }
+  .w-daily-day {
+    font-size: 11px;
+    color: var(--text2);
+    width: 40px;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  .w-daily-icon {
+    font-size: 18px;
+    width: 22px;
+    flex-shrink: 0;
+  }
+  .w-daily-temps {
+    margin-left: auto;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .w-daily-max {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text1);
+    width: 32px;
+    text-align: right;
+  }
+  .w-daily-min {
+    font-size: 11px;
+    color: var(--text3);
+    width: 32px;
+    text-align: right;
+  }
+  .w-sun-grid {
+    display: flex;
+    justify-content: space-around;
+    padding: 12px 0;
+    gap: 16px;
+  }
+  .w-sun-item {
+    text-align: center;
+    flex: 1;
+  }
+  .w-sun-icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+  }
+  .w-sun-time {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text1);
+    letter-spacing: -0.5px;
+  }
+  .w-sun-label {
+    font-size: 10px;
+    color: var(--text3);
+    text-transform: uppercase;
+    margin-top: 4px;
+    letter-spacing: 0.5px;
+  }
+  .aqi-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .aqi-good {
+    background: rgba(45, 138, 78, 0.2);
+    color: var(--green);
+    border: 1px solid rgba(45, 138, 78, 0.4);
+  }
+  .aqi-mod {
+    background: rgba(214, 158, 46, 0.2);
+    color: var(--amber);
+    border: 1px solid rgba(214, 158, 46, 0.4);
+  }
+  .aqi-poor {
+    background: rgba(229, 62, 62, 0.2);
+    color: var(--red);
+    border: 1px solid rgba(229, 62, 62, 0.4);
+  }
 
-/* ── USB connect button ── */
-#btn-connect-usb {
-  position:fixed; bottom:24px; right:24px; z-index:200;
-  background:rgba(45,138,78,.1); color:var(--green);
-  border:1px dashed var(--green); border-radius:10px; padding:10px 20px;
-  font-size:13px; font-weight:600; cursor:pointer; transition:all .2s;
-}
-#btn-connect-usb:hover { background:var(--green); color:#fff; }
+  /* ── USB connect button ── */
+  #btn-connect-usb {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 200;
+    background: rgba(45, 138, 78, 0.1);
+    color: var(--green);
+    border: 1px dashed var(--green);
+    border-radius: 10px;
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  #btn-connect-usb:hover {
+    background: var(--green);
+    color: #fff;
+  }
 
-/* ── SPA Tab Styling ── */
-.app-panel { display: none; }
-.app-panel.active-panel { display: block; animation: fadeIn 0.3s ease-in-out; }
+  /* ── SPA Tab Styling ── */
+  .app-panel {
+    display: none;
+  }
+  .app-panel.active-panel {
+    display: block;
+    animation: fadeIn 0.3s ease-in-out;
+  }
 </style>
-{% endblock %}
-
-{% block content %}
+{% endblock %} {% block content %}
 
 <!-- =========================================================================
      PANEL 1: Live Soil Monitor
@@ -146,51 +592,129 @@
 <div class="app-panel" id="panel-soil">
   <!-- In-page tab navigation -->
   <div class="soil-tabs">
-    <div class="soil-tab active" id="stab-overview" onclick="soilTab('overview', this)">🌿 Your Field</div>
-    <div class="soil-tab" id="stab-charts"   onclick="soilTab('charts', this)">📈 Sensor History</div>
-    <div class="soil-tab" id="stab-weather"  onclick="soilTab('weather', this)">🌦️ Weather</div>
-    <div class="soil-tab" id="stab-insights" onclick="soilTab('insights', this)">🧠 AI Insights</div>
-    <div class="soil-tab" id="stab-reports"  onclick="soilTab('reports', this)">📁 Reports</div>
+    <div
+      class="soil-tab active"
+      id="stab-overview"
+      onclick="soilTab('overview', this)"
+    >
+      🌿 Your Field
+    </div>
+    <div class="soil-tab" id="stab-charts" onclick="soilTab('charts', this)">
+      📈 Sensor History
+    </div>
+    <div class="soil-tab" id="stab-weather" onclick="soilTab('weather', this)">
+      🌦️ Weather
+    </div>
+    <div
+      class="soil-tab"
+      id="stab-insights"
+      onclick="soilTab('insights', this)"
+    >
+      🧠 AI Insights
+    </div>
+    <div class="soil-tab" id="stab-reports" onclick="soilTab('reports', this)">
+      📁 Reports
+    </div>
   </div>
 
   <!-- Error banners -->
-  <div id="error-banner" style="display:none;" class="alert" style="margin-bottom:12px;">
+  <div
+    id="error-banner"
+    style="display: none"
+    class="alert"
+    style="margin-bottom: 12px"
+  >
     ⚠️ Sensor Offline: Cannot reach backend API. Showing cached data.
   </div>
-  <div id="web-serial-warning" style="display:none;" class="alert alert-medium" style="margin-bottom:12px;">
-    ⚠️ Web Serial is not supported in this browser. Use Chrome / Edge for USB direct reading.
+  <div
+    id="web-serial-warning"
+    style="display: none"
+    class="alert alert-medium"
+    style="margin-bottom: 12px"
+  >
+    ⚠️ Web Serial is not supported in this browser. Use Chrome / Edge for USB
+    direct reading.
   </div>
 
   <!-- TAB 1 — Your Field (Overview) -->
   <div class="soil-view active" id="sview-overview">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <div
+      style="
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+      "
+    >
       <div>
-        <div style="font-size:18px; font-weight:700; color:var(--text1);">🌿 Live Sensor Readings</div>
-        <div id="last-update" style="font-size:12px; color:var(--text2); margin-top:2px;">Waiting for data…</div>
+        <div style="font-size: 18px; font-weight: 700; color: var(--text1)">
+          🌿 Live Sensor Readings
+        </div>
+        <div
+          id="last-update"
+          style="font-size: 12px; color: var(--text2); margin-top: 2px"
+        >
+          Waiting for data…
+        </div>
       </div>
     </div>
 
     <!-- Metric cards -->
     <div class="sensor-grid">
-      <div class="metric-card" style="--card-accent:#2b6cb0" id="card-sm">
+      <div class="metric-card" style="--card-accent: #2b6cb0" id="card-sm">
         <div class="metric-label">Soil Moisture</div>
-        <div class="metric-value" id="val-sm">—<span class="metric-unit">%</span></div>
-        <div class="threshold-bar-track"><div class="threshold-bar-fill" id="bar-sm" style="width:0%;background:#2b6cb0;"></div></div>
-        <div class="threshold-markers"><span id="sm-min-label">0%</span><span id="sm-opt-label">Opt: --</span><span id="sm-max-label">100%</span></div>
+        <div class="metric-value" id="val-sm">
+          —<span class="metric-unit">%</span>
+        </div>
+        <div class="threshold-bar-track">
+          <div
+            class="threshold-bar-fill"
+            id="bar-sm"
+            style="width: 0%; background: #2b6cb0"
+          ></div>
+        </div>
+        <div class="threshold-markers">
+          <span id="sm-min-label">0%</span><span id="sm-opt-label">Opt: --</span
+          ><span id="sm-max-label">100%</span>
+        </div>
         <div id="badge-sm" class="metric-badge badge-ok">● OPTIMAL</div>
       </div>
-      <div class="metric-card" style="--card-accent:#e53e3e" id="card-temp">
+      <div class="metric-card" style="--card-accent: #e53e3e" id="card-temp">
         <div class="metric-label">Temperature</div>
-        <div class="metric-value" id="val-temp">—<span class="metric-unit">°C</span></div>
-        <div class="threshold-bar-track"><div class="threshold-bar-fill" id="bar-temp" style="width:0%;background:#e53e3e;"></div></div>
-        <div class="threshold-markers"><span id="temp-min-label">0°</span><span id="temp-opt-label">Opt: --</span><span id="temp-max-label">50°</span></div>
+        <div class="metric-value" id="val-temp">
+          —<span class="metric-unit">°C</span>
+        </div>
+        <div class="threshold-bar-track">
+          <div
+            class="threshold-bar-fill"
+            id="bar-temp"
+            style="width: 0%; background: #e53e3e"
+          ></div>
+        </div>
+        <div class="threshold-markers">
+          <span id="temp-min-label">0°</span
+          ><span id="temp-opt-label">Opt: --</span
+          ><span id="temp-max-label">50°</span>
+        </div>
         <div id="badge-temp" class="metric-badge badge-ok">● NORMAL</div>
       </div>
-      <div class="metric-card" style="--card-accent:#3182ce" id="card-hum">
+      <div class="metric-card" style="--card-accent: #3182ce" id="card-hum">
         <div class="metric-label">Ambient Humidity</div>
-        <div class="metric-value" id="val-hum">—<span class="metric-unit">%</span></div>
-        <div class="threshold-bar-track"><div class="threshold-bar-fill" id="bar-hum" style="width:0%;background:#3182ce;"></div></div>
-        <div class="threshold-markers"><span id="hum-min-label">0%</span><span id="hum-opt-label">Opt: --</span><span id="hum-max-label">100%</span></div>
+        <div class="metric-value" id="val-hum">
+          —<span class="metric-unit">%</span>
+        </div>
+        <div class="threshold-bar-track">
+          <div
+            class="threshold-bar-fill"
+            id="bar-hum"
+            style="width: 0%; background: #3182ce"
+          ></div>
+        </div>
+        <div class="threshold-markers">
+          <span id="hum-min-label">0%</span
+          ><span id="hum-opt-label">Opt: --</span
+          ><span id="hum-max-label">100%</span>
+        </div>
         <div id="badge-hum" class="metric-badge badge-ok">● NORMAL</div>
       </div>
     </div>
@@ -224,15 +748,28 @@
     <div class="card">
       <div class="card-title">🧠 Quick Insights</div>
       <div class="insights-list" id="quick-insights">
-        <div style="font-size:13px; color:var(--text2); padding:12px 0;">Loading insights…</div>
+        <div style="font-size: 13px; color: var(--text2); padding: 12px 0">
+          Loading insights…
+        </div>
       </div>
     </div>
   </div>
 
   <!-- TAB 2 — Sensor History Charts -->
   <div class="soil-view" id="sview-charts">
-    <div style="font-size:18px; font-weight:700; color:var(--text1); margin-bottom:4px;">📈 Time-Series Charts</div>
-    <div style="font-size:13px; color:var(--text2); margin-bottom:16px;">All sensor data over selected time range</div>
+    <div
+      style="
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--text1);
+        margin-bottom: 4px;
+      "
+    >
+      📈 Time-Series Charts
+    </div>
+    <div style="font-size: 13px; color: var(--text2); margin-bottom: 16px">
+      All sensor data over selected time range
+    </div>
 
     <div class="range-pills">
       <div class="pill active" onclick="setRange(1, this)">Last 1h</div>
@@ -241,17 +778,44 @@
       <div class="pill" onclick="setRange(168, this)">Last 7d</div>
     </div>
 
-    <div style="display:flex; flex-direction:column; gap:20px;">
-      <div class="card" style="padding:16px 20px;">
-        <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">💧 Soil Moisture (%)</div>
+    <div style="display: flex; flex-direction: column; gap: 20px">
+      <div class="card" style="padding: 16px 20px">
+        <div
+          style="
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text1);
+            margin-bottom: 12px;
+          "
+        >
+          💧 Soil Moisture (%)
+        </div>
         <div class="full-chart-wrap"><canvas id="chart-sm"></canvas></div>
       </div>
-      <div class="card" style="padding:16px 20px;">
-        <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">🌡️ Temperature (°C)</div>
+      <div class="card" style="padding: 16px 20px">
+        <div
+          style="
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text1);
+            margin-bottom: 12px;
+          "
+        >
+          🌡️ Temperature (°C)
+        </div>
         <div class="full-chart-wrap"><canvas id="chart-temp"></canvas></div>
       </div>
-      <div class="card" style="padding:16px 20px;">
-        <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">💦 Humidity (%)</div>
+      <div class="card" style="padding: 16px 20px">
+        <div
+          style="
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text1);
+            margin-bottom: 12px;
+          "
+        >
+          💦 Humidity (%)
+        </div>
         <div class="full-chart-wrap"><canvas id="chart-hum"></canvas></div>
       </div>
     </div>
@@ -259,34 +823,74 @@
 
   <!-- TAB 3 — Weather -->
   <div class="soil-view" id="sview-weather">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <div
+      style="
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+      "
+    >
       <div>
-        <div style="font-size:18px; font-weight:700; color:var(--text1);">🌦️ Weather Conditions</div>
-        <div id="weather-fetched" style="font-size:12px; color:var(--text2);">Loading…</div>
+        <div style="font-size: 18px; font-weight: 700; color: var(--text1)">
+          🌦️ Weather Conditions
+        </div>
+        <div id="weather-fetched" style="font-size: 12px; color: var(--text2)">
+          Loading…
+        </div>
       </div>
     </div>
     <div id="severe-alert-container"></div>
     <div class="w-row">
       <div class="w-col-main">
         <div class="w-card">
-          <div class="w-card-title">📍 Current Weather <span id="w-city" style="color:var(--text1); font-weight:700; margin-left:auto;">—</span></div>
+          <div class="w-card-title">
+            📍 Current Weather
+            <span
+              id="w-city"
+              style="color: var(--text1); font-weight: 700; margin-left: auto"
+              >—</span
+            >
+          </div>
           <div class="w-curr-top">
             <div>
-              <div class="w-curr-temp"><span id="w-temp">—</span><span class="w-curr-unit">°C</span></div>
-              <div class="w-curr-feels">RealFeel® <span id="w-feels">—</span>°C</div>
+              <div class="w-curr-temp">
+                <span id="w-temp">—</span><span class="w-curr-unit">°C</span>
+              </div>
+              <div class="w-curr-feels">
+                RealFeel® <span id="w-feels">—</span>°C
+              </div>
             </div>
-            <div style="text-align:right;">
+            <div style="text-align: right">
               <div class="w-curr-icon" id="w-icon">☀️</div>
               <div class="w-curr-desc" id="w-desc">—</div>
             </div>
           </div>
           <div class="w-details-grid">
-            <div class="w-detail-item"><span class="w-detail-label">Wind</span><span class="w-detail-val" id="w-wind">—</span></div>
-            <div class="w-detail-item"><span class="w-detail-label">Humidity</span><span class="w-detail-val" id="w-hum">—</span></div>
-            <div class="w-detail-item"><span class="w-detail-label">Pressure</span><span class="w-detail-val" id="w-press">—</span></div>
-            <div class="w-detail-item"><span class="w-detail-label">Cloud Cover</span><span class="w-detail-val" id="w-cloud">—</span></div>
-            <div class="w-detail-item"><span class="w-detail-label">UV Index</span><span class="w-detail-val" id="w-uv">—</span></div>
-            <div class="w-detail-item"><span class="w-detail-label">Air Quality</span><span class="aqi-badge" id="w-aqi-badge">—</span></div>
+            <div class="w-detail-item">
+              <span class="w-detail-label">Wind</span
+              ><span class="w-detail-val" id="w-wind">—</span>
+            </div>
+            <div class="w-detail-item">
+              <span class="w-detail-label">Humidity</span
+              ><span class="w-detail-val" id="w-hum">—</span>
+            </div>
+            <div class="w-detail-item">
+              <span class="w-detail-label">Pressure</span
+              ><span class="w-detail-val" id="w-press">—</span>
+            </div>
+            <div class="w-detail-item">
+              <span class="w-detail-label">Cloud Cover</span
+              ><span class="w-detail-val" id="w-cloud">—</span>
+            </div>
+            <div class="w-detail-item">
+              <span class="w-detail-label">UV Index</span
+              ><span class="w-detail-val" id="w-uv">—</span>
+            </div>
+            <div class="w-detail-item">
+              <span class="w-detail-label">Air Quality</span
+              ><span class="aqi-badge" id="w-aqi-badge">—</span>
+            </div>
           </div>
         </div>
         <div class="w-card">
@@ -320,19 +924,48 @@
 
   <!-- TAB 4 — AI Insights -->
   <div class="soil-view" id="sview-insights">
-    <div style="font-size:18px; font-weight:700; color:var(--text1); margin-bottom:4px;">🧠 Crop &amp; Soil Insights</div>
-    <div style="font-size:13px; color:var(--text2); margin-bottom:16px;">Rule-based recommendations for your field</div>
-    <div id="fusion-loader" style="display:none; text-align:center; padding:48px 0;">
-      <div class="spinner" style="margin:0 auto 16px;"></div>
-      <div style="font-weight:600; color:var(--green);">AI Fusion in progress…</div>
+    <div
+      style="
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--text1);
+        margin-bottom: 4px;
+      "
+    >
+      🧠 Crop &amp; Soil Insights
     </div>
-    <div class="insights-list" id="full-insights" style="transition:opacity .3s;"></div>
+    <div style="font-size: 13px; color: var(--text2); margin-bottom: 16px">
+      Rule-based recommendations for your field
+    </div>
+    <div
+      id="fusion-loader"
+      style="display: none; text-align: center; padding: 48px 0"
+    >
+      <div class="spinner" style="margin: 0 auto 16px"></div>
+      <div style="font-weight: 600; color: var(--green)">
+        AI Fusion in progress…
+      </div>
+    </div>
+    <div
+      class="insights-list"
+      id="full-insights"
+      style="transition: opacity 0.3s"
+    ></div>
   </div>
 
   <!-- TAB 5 — Reports -->
   <div class="soil-view" id="sview-reports">
-    <div style="font-size:18px; font-weight:700; color:var(--text1); margin-bottom:16px;">📁 Report Generation</div>
-    <div class="form-group" style="max-width:280px; margin-bottom:20px;">
+    <div
+      style="
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--text1);
+        margin-bottom: 16px;
+      "
+    >
+      📁 Report Generation
+    </div>
+    <div class="form-group" style="max-width: 280px; margin-bottom: 20px">
       <label class="form-label">Time Range for Report</label>
       <select class="form-select" id="report-hours">
         <option value="1">Last 1 Hour</option>
@@ -341,21 +974,61 @@
         <option value="168">Last 7 Days</option>
       </select>
     </div>
-    <div style="display:flex; flex-direction:column; gap:16px;">
-      <div class="card" style="padding:20px;">
-        <div style="font-size:14px; font-weight:700; color:var(--text1); margin-bottom:8px;">📊 CSV Data Export</div>
-        <div style="font-size:12px; color:var(--text2); margin-bottom:14px;">Downloads all timestamped sensor readings in CSV format.</div>
-        <button class="btn btn-primary" onclick="downloadCSV()">⬇️ Download CSV</button>
+    <div style="display: flex; flex-direction: column; gap: 16px">
+      <div class="card" style="padding: 20px">
+        <div
+          style="
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text1);
+            margin-bottom: 8px;
+          "
+        >
+          📊 CSV Data Export
+        </div>
+        <div style="font-size: 12px; color: var(--text2); margin-bottom: 14px">
+          Downloads all timestamped sensor readings in CSV format.
+        </div>
+        <button class="btn btn-primary" onclick="downloadCSV()">
+          ⬇️ Download CSV
+        </button>
       </div>
-      <div class="card" style="padding:20px;">
-        <div style="font-size:14px; font-weight:700; color:var(--text1); margin-bottom:8px;">📄 PDF Report</div>
-        <div style="font-size:12px; color:var(--text2); margin-bottom:14px;">Generates a comprehensive PDF report with sensor data, weather summary, and insights.</div>
-        <button class="btn btn-primary" onclick="downloadPDF()">📄 Generate PDF</button>
+      <div class="card" style="padding: 20px">
+        <div
+          style="
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text1);
+            margin-bottom: 8px;
+          "
+        >
+          📄 PDF Report
+        </div>
+        <div style="font-size: 12px; color: var(--text2); margin-bottom: 14px">
+          Generates a comprehensive PDF report with sensor data, weather
+          summary, and insights.
+        </div>
+        <button class="btn btn-primary" onclick="downloadPDF()">
+          📄 Generate PDF
+        </button>
       </div>
-      <div class="card" style="padding:20px;">
-        <div style="font-size:14px; font-weight:700; color:var(--text1); margin-bottom:8px;">📋 Quick Export (Client-side)</div>
-        <div style="font-size:12px; color:var(--text2); margin-bottom:14px;">Instant export of the current reading without server round-trip.</div>
-        <button class="btn btn-outline" onclick="quickExportCSV()">Quick Export</button>
+      <div class="card" style="padding: 20px">
+        <div
+          style="
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text1);
+            margin-bottom: 8px;
+          "
+        >
+          📋 Quick Export (Client-side)
+        </div>
+        <div style="font-size: 12px; color: var(--text2); margin-bottom: 14px">
+          Instant export of the current reading without server round-trip.
+        </div>
+        <button class="btn btn-outline" onclick="quickExportCSV()">
+          Quick Export
+        </button>
       </div>
     </div>
   </div>
@@ -367,52 +1040,110 @@
   <div class="alert-bar" id="alert-bar"></div>
 </div>
 
-
 <!-- =========================================================================
      PANEL 2: Plant Disease Detection
      ========================================================================= -->
 <div class="app-panel" id="panel-disease">
   <div class="page-header">
     <div class="page-title">🔬 Plant Disease Detection</div>
-    <div class="page-sub">Upload a leaf image — AI will diagnose the disease and fuse with sensor data</div>
+    <div class="page-sub">
+      Upload a leaf image — AI will diagnose the disease and fuse with sensor
+      data
+    </div>
   </div>
 
-  <div style="display:grid; grid-template-columns:420px 1fr; gap:24px; align-items:start;">
+  <div
+    style="
+      display: grid;
+      grid-template-columns: 420px 1fr;
+      gap: 24px;
+      align-items: start;
+    "
+  >
     <!-- Left Column: Upload + Crop -->
     <div>
-      <div class="card" style="padding:20px;">
+      <div class="card" style="padding: 20px">
         <div class="card-title">📸 Step 1 — Upload Leaf Image</div>
 
         <!-- Drop zone -->
         <div class="upload-zone" id="drop-zone">
           <div class="upload-icon">🌿</div>
           <div class="upload-title">Drop image here</div>
-          <div class="upload-sub">or click to browse · JPG / PNG · Max 10 MB</div>
-          <input type="file" id="file-input" accept="image/*" style="display:none">
+          <div class="upload-sub">
+            or click to browse · JPG / PNG · Max 10 MB
+          </div>
+          <input
+            type="file"
+            id="file-input"
+            accept="image/*"
+            style="display: none"
+          />
         </div>
 
         <!-- Crop preview (hidden until image loaded) -->
-        <div id="crop-section" style="display:none; margin-top:16px;">
-          <div class="card-title" style="margin-bottom:8px;">✂️ Step 2 — Crop the leaf region</div>
-          <div style="position:relative; background:#0d1117; border-radius:8px; overflow:hidden; max-height:320px;">
-            <img id="crop-img" style="display:block; max-width:100%;" alt="Uploaded leaf">
+        <div id="crop-section" style="display: none; margin-top: 16px">
+          <div class="card-title" style="margin-bottom: 8px">
+            ✂️ Step 2 — Crop the leaf region
           </div>
-          <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
-            <button class="btn btn-secondary" onclick="cropper.rotate(-90)">↺ Rotate</button>
-            <button class="btn btn-secondary" onclick="cropper.reset()">Reset</button>
-            <button class="btn btn-primary" id="btn-diagnose" onclick="runDiagnosis()">
+          <div
+            style="
+              position: relative;
+              background: #0d1117;
+              border-radius: 8px;
+              overflow: hidden;
+              max-height: 320px;
+            "
+          >
+            <img
+              id="crop-img"
+              style="display: block; max-width: 100%"
+              alt="Uploaded leaf"
+            />
+          </div>
+          <div
+            style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap"
+          >
+            <button class="btn btn-secondary" onclick="cropper.rotate(-90)">
+              ↺ Rotate
+            </button>
+            <button class="btn btn-secondary" onclick="cropper.reset()">
+              Reset
+            </button>
+            <button
+              class="btn btn-primary"
+              id="btn-diagnose"
+              onclick="runDiagnosis()"
+            >
               <span id="btn-text">🚀 Run AI Diagnosis</span>
-              <div class="spinner" id="btn-spinner" style="display:none;width:16px;height:16px;border-width:2px;"></div>
+              <div
+                class="spinner"
+                id="btn-spinner"
+                style="
+                  display: none;
+                  width: 16px;
+                  height: 16px;
+                  border-width: 2px;
+                "
+              ></div>
             </button>
           </div>
         </div>
       </div>
 
       <!-- Instructions -->
-      <div class="card" style="padding:16px 20px; background:rgba(45,138,78,0.06); border-color:rgba(45,138,78,0.2);">
-        <div style="font-size:12px; color:var(--text2); line-height:1.8;">
-          <strong style="color:var(--green);">Supported crops:</strong> Apple · Potato · Tomato · Pepper Bell · Peach<br>
-          <strong style="color:var(--green);">For best results:</strong> Crop tightly around the leaf, ensure good lighting, avoid blurry images.
+      <div
+        class="card"
+        style="
+          padding: 16px 20px;
+          background: rgba(45, 138, 78, 0.06);
+          border-color: rgba(45, 138, 78, 0.2);
+        "
+      >
+        <div style="font-size: 12px; color: var(--text2); line-height: 1.8">
+          <strong style="color: var(--green)">Supported crops:</strong> Apple ·
+          Potato · Tomato · Pepper Bell · Peach<br />
+          <strong style="color: var(--green)">For best results:</strong> Crop
+          tightly around the leaf, ensure good lighting, avoid blurry images.
         </div>
       </div>
     </div>
@@ -420,88 +1151,219 @@
     <!-- Right Column: Results -->
     <div id="result-area">
       <!-- Empty state -->
-      <div id="empty-state" class="card" style="text-align:center; padding:64px 24px;">
-        <div style="font-size:4rem; margin-bottom:16px;">🌱</div>
-        <div style="font-size:16px; font-weight:600; color:var(--text1); margin-bottom:8px;">Ready for diagnosis</div>
-        <div style="font-size:13px; color:var(--text2);">Upload a leaf photo and click "Run AI Diagnosis" to begin</div>
+      <div
+        id="empty-state"
+        class="card"
+        style="text-align: center; padding: 64px 24px"
+      >
+        <div style="font-size: 4rem; margin-bottom: 16px">🌱</div>
+        <div
+          style="
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text1);
+            margin-bottom: 8px;
+          "
+        >
+          Ready for diagnosis
+        </div>
+        <div style="font-size: 13px; color: var(--text2)">
+          Upload a leaf photo and click "Run AI Diagnosis" to begin
+        </div>
       </div>
 
       <!-- Loading state -->
-      <div id="loading-state" style="display:none;" class="card" style="text-align:center; padding:64px 24px;">
-        <div style="text-align:center; padding:48px 0;">
-          <div class="spinner" style="margin:0 auto 20px; width:48px; height:48px;"></div>
-          <div style="font-weight:600; color:var(--text1); font-size:16px;" id="loading-msg">Processing image…</div>
-          <div style="font-size:12px; color:var(--text2); margin-top:8px;">Background suppression → Contrast enhancement → AI inference</div>
+      <div
+        id="loading-state"
+        style="display: none"
+        class="card"
+        style="text-align: center; padding: 64px 24px"
+      >
+        <div style="text-align: center; padding: 48px 0">
+          <div
+            class="spinner"
+            style="margin: 0 auto 20px; width: 48px; height: 48px"
+          ></div>
+          <div
+            style="font-weight: 600; color: var(--text1); font-size: 16px"
+            id="loading-msg"
+          >
+            Processing image…
+          </div>
+          <div style="font-size: 12px; color: var(--text2); margin-top: 8px">
+            Background suppression → Contrast enhancement → AI inference
+          </div>
         </div>
       </div>
 
       <!-- Result panel (populated by JS) -->
-      <div id="result-panel" style="display:none;">
+      <div id="result-panel" style="display: none">
         <!-- Diagnosis header -->
-        <div class="diagnosis-header card" style="margin-bottom:20px;">
+        <div class="diagnosis-header card" style="margin-bottom: 20px">
           <div class="diagnosis-icon" id="res-icon">🌿</div>
-          <div style="flex:1;">
+          <div style="flex: 1">
             <div class="diagnosis-crop" id="res-crop">Crop: —</div>
             <div class="diagnosis-disease" id="res-disease">—</div>
-            <div style="display:flex; align-items:center; gap:12px; margin-top:6px; flex-wrap:wrap;">
-              <div class="confidence-bar"><div class="confidence-fill" id="res-conf-bar" style="width:0%"></div></div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-top: 6px;
+                flex-wrap: wrap;
+              "
+            >
+              <div class="confidence-bar">
+                <div
+                  class="confidence-fill"
+                  id="res-conf-bar"
+                  style="width: 0%"
+                ></div>
+              </div>
               <div class="diagnosis-conf" id="res-conf">0% confidence</div>
               <span class="badge" id="res-alert-badge">—</span>
             </div>
           </div>
           <div>
-            <a id="btn-download-report" class="btn btn-outline" style="font-size:12px;" href="#">📄 Download Report</a>
+            <a
+              id="btn-download-report"
+              class="btn btn-outline"
+              style="font-size: 12px"
+              href="#"
+              >📄 Download Report</a
+            >
           </div>
         </div>
 
         <!-- Low confidence warning -->
-        <div id="low-conf-warning" class="alert alert-medium" style="display:none;">
-          ⚠️ Low confidence result — try a clearer image or crop more tightly around the affected leaf.
+        <div
+          id="low-conf-warning"
+          class="alert alert-medium"
+          style="display: none"
+        >
+          ⚠️ Low confidence result — try a clearer image or crop more tightly
+          around the affected leaf.
         </div>
 
         <!-- Top-3 Predictions -->
-        <div class="card" style="margin-bottom:20px;">
+        <div class="card" style="margin-bottom: 20px">
           <div class="card-title">📊 Top-3 Model Predictions</div>
           <div id="top3-bars"></div>
         </div>
 
         <!-- Fusion Analysis -->
         <!-- LLM Expert Insights (New) -->
-        <div id="llm-insight-panel" class="card" style="display:none; margin-bottom:20px; border-left:5px solid #10b981; background:rgba(16,185,129,0.04);">
-          <div class="card-title" style="color:#10b981; display:flex; align-items:center; gap:8px;">
+        <div
+          id="llm-insight-panel"
+          class="card"
+          style="
+            display: none;
+            margin-bottom: 20px;
+            border-left: 5px solid #10b981;
+            background: rgba(16, 185, 129, 0.04);
+          "
+        >
+          <div
+            class="card-title"
+            style="color: #10b981; display: flex; align-items: center; gap: 8px"
+          >
             <span>🤖 AI Expert Deep-Dive</span>
-            <span style="font-size:10px; padding:2px 6px; background:rgba(16,185,129,0.1); border-radius:4px; font-weight:normal;">POWERED BY LLAMA 3.3</span>
+            <span
+              style="
+                font-size: 10px;
+                padding: 2px 6px;
+                background: rgba(16, 185, 129, 0.1);
+                border-radius: 4px;
+                font-weight: normal;
+              "
+              >POWERED BY LLAMA 3.3</span
+            >
           </div>
-          <div style="display:grid; gap:16px;">
+          <div style="display: grid; gap: 16px">
             <div>
-              <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text2); margin-bottom:4px; letter-spacing:0.05em;">Potential Causes</div>
-              <div id="llm-causes" style="font-size:13px; line-height:1.6; color:var(--text1);"></div>
+              <div
+                style="
+                  font-size: 11px;
+                  font-weight: 700;
+                  text-transform: uppercase;
+                  color: var(--text2);
+                  margin-bottom: 4px;
+                  letter-spacing: 0.05em;
+                "
+              >
+                Potential Causes
+              </div>
+              <div
+                id="llm-causes"
+                style="font-size: 13px; line-height: 1.6; color: var(--text1)"
+              ></div>
             </div>
             <div>
-              <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text2); margin-bottom:4px; letter-spacing:0.05em;">Scientific Suggestions</div>
-              <div id="llm-suggestions" style="font-size:13px; line-height:1.6; color:var(--text1);"></div>
+              <div
+                style="
+                  font-size: 11px;
+                  font-weight: 700;
+                  text-transform: uppercase;
+                  color: var(--text2);
+                  margin-bottom: 4px;
+                  letter-spacing: 0.05em;
+                "
+              >
+                Scientific Suggestions
+              </div>
+              <div
+                id="llm-suggestions"
+                style="font-size: 13px; line-height: 1.6; color: var(--text1)"
+              ></div>
             </div>
             <div>
-              <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text2); margin-bottom:4px; letter-spacing:0.05em;">Botanical Context</div>
-              <div id="llm-information" style="font-size:13px; line-height:1.6; color:var(--text1);"></div>
+              <div
+                style="
+                  font-size: 11px;
+                  font-weight: 700;
+                  text-transform: uppercase;
+                  color: var(--text2);
+                  margin-bottom: 4px;
+                  letter-spacing: 0.05em;
+                "
+              >
+                Botanical Context
+              </div>
+              <div
+                id="llm-information"
+                style="font-size: 13px; line-height: 1.6; color: var(--text1)"
+              ></div>
             </div>
           </div>
         </div>
-        <div id="fusion-panel" class="fusion-panel" style="display:none;">
+        <div id="fusion-panel" class="fusion-panel" style="display: none">
           <div class="fusion-header">
-            <div class="fusion-title">🧬 Fusion Analysis — Disease + Soil Intelligence</div>
+            <div class="fusion-title">
+              🧬 Fusion Analysis — Disease + Soil Intelligence
+            </div>
             <div>
-              <span style="font-size:12px; color:var(--text2);">Risk Score: </span>
-              <strong id="fusion-risk" style="color:var(--text1);">—/100</strong>
+              <span style="font-size: 12px; color: var(--text2)"
+                >Risk Score:
+              </span>
+              <strong id="fusion-risk" style="color: var(--text1)"
+                >—/100</strong
+              >
             </div>
           </div>
           <div class="fusion-body">
-            <div id="fusion-insight" class="alert" style="margin-bottom:16px;"></div>
+            <div
+              id="fusion-insight"
+              class="alert"
+              style="margin-bottom: 16px"
+            ></div>
             <div class="fusion-section-title">📡 Sensor Context</div>
-            <div id="fusion-soil" style="font-size:12px; color:var(--text2); margin-bottom:16px;"></div>
+            <div
+              id="fusion-soil"
+              style="font-size: 12px; color: var(--text2); margin-bottom: 16px"
+            ></div>
 
             <div class="fusion-section-title">🚀 Immediate Actions</div>
-            <div id="fusion-actions" style="margin-bottom:16px;"></div>
+            <div id="fusion-actions" style="margin-bottom: 16px"></div>
 
             <div class="fusion-grid">
               <div>
@@ -514,25 +1376,31 @@
               </div>
               <div>
                 <div class="fusion-section-title">💧 Irrigation</div>
-                <div id="fusion-irrigation" style="font-size:13px; color:var(--text2);"></div>
+                <div
+                  id="fusion-irrigation"
+                  style="font-size: 13px; color: var(--text2)"
+                ></div>
               </div>
               <div>
                 <div class="fusion-section-title">🌿 Fertiliser</div>
-                <div id="fusion-fertiliser" style="font-size:13px; color:var(--text2);"></div>
+                <div
+                  id="fusion-fertiliser"
+                  style="font-size: 13px; color: var(--text2)"
+                ></div>
               </div>
             </div>
           </div>
         </div>
 
         <!-- No sensor data info -->
-        <div id="no-sensor-info" class="alert alert-info" style="display:none;">
-          ℹ️ Connect your IoT device to unlock Fusion Analysis — disease result cross-referenced with live soil & weather data.
+        <div id="no-sensor-info" class="alert alert-info" style="display: none">
+          ℹ️ Connect your IoT device to unlock Fusion Analysis — disease result
+          cross-referenced with live soil & weather data.
         </div>
       </div>
     </div>
   </div>
 </div>
-
 
 <!-- =========================================================================
      PANEL 3: History
@@ -544,22 +1412,46 @@
   </div>
 
   <div class="tab-bar">
-    <button class="tab-btn active" onclick="switchHistoryTab('disease', this)">🔬 Disease Predictions</button>
-    <button class="tab-btn" onclick="switchHistoryTab('soil', this)">🌱 Soil Readings</button>
+    <button class="tab-btn active" onclick="switchHistoryTab('disease', this)">
+      🔬 Disease Predictions
+    </button>
+    <button class="tab-btn" onclick="switchHistoryTab('soil', this)">
+      🌱 Soil Readings
+    </button>
   </div>
 
   <!-- Disease Predictions Tab -->
   <div class="tab-pane active" id="tab-disease">
-    <div class="card" style="padding:0; overflow:hidden;">
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid var(--border1);">
-        <div style="font-size:13px; font-weight:600; color:var(--text1);">Disease Predictions (last 100)</div>
-        <button class="btn btn-secondary" onclick="exportHistoryCSV('disease')" style="font-size:12px; padding:6px 14px;">⬇️ Export CSV</button>
+    <div class="card" style="padding: 0; overflow: hidden">
+      <div
+        style="
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--border1);
+        "
+      >
+        <div style="font-size: 13px; font-weight: 600; color: var(--text1)">
+          Disease Predictions (last 100)
+        </div>
+        <button
+          class="btn btn-secondary"
+          onclick="exportHistoryCSV('disease')"
+          style="font-size: 12px; padding: 6px 14px"
+        >
+          ⬇️ Export CSV
+        </button>
       </div>
-      <div id="disease-loading" style="text-align:center; padding:40px; color:var(--text2);">
-        <div class="spinner" style="margin:0 auto 12px;"></div>Loading…
+      <div
+        id="disease-loading"
+        style="text-align: center; padding: 40px; color: var(--text2)"
+      >
+        <div class="spinner" style="margin: 0 auto 12px"></div>
+        Loading…
       </div>
-      <div style="overflow-x:auto;">
-        <table class="data-table" id="disease-table" style="display:none;">
+      <div style="overflow-x: auto">
+        <table class="data-table" id="disease-table" style="display: none">
           <thead>
             <tr>
               <th>#</th>
@@ -572,7 +1464,11 @@
           </thead>
           <tbody id="disease-tbody"></tbody>
         </table>
-        <div id="disease-empty" class="alert alert-info" style="display:none; margin:20px;">
+        <div
+          id="disease-empty"
+          class="alert alert-info"
+          style="display: none; margin: 20px"
+        >
           No disease predictions yet — run a diagnosis first.
         </div>
       </div>
@@ -581,26 +1477,54 @@
 
   <!-- Soil Readings Tab -->
   <div class="tab-pane" id="tab-soil">
-    <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap; align-items:center;">
-      <div class="form-group" style="margin:0; display:flex; align-items:center; gap:10px;">
-        <label class="form-label" style="margin:0; white-space:nowrap;">Time Range:</label>
-        <select class="form-select" id="soil-hours" style="width:160px;" onchange="loadSoilHistory()">
+    <div
+      style="
+        display: flex;
+        gap: 12px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+        align-items: center;
+      "
+    >
+      <div
+        class="form-group"
+        style="margin: 0; display: flex; align-items: center; gap: 10px"
+      >
+        <label class="form-label" style="margin: 0; white-space: nowrap"
+          >Time Range:</label
+        >
+        <select
+          class="form-select"
+          id="soil-hours"
+          style="width: 160px"
+          onchange="loadSoilHistory()"
+        >
           <option value="1">Last 1 Hour</option>
           <option value="6">Last 6 Hours</option>
           <option value="24" selected>Last 24 Hours</option>
           <option value="168">Last 7 Days</option>
         </select>
       </div>
-      <button class="btn btn-secondary" onclick="exportHistoryCSV('soil')" style="font-size:12px; padding:6px 14px;">⬇️ Export CSV</button>
-      <span id="soil-count" style="font-size:12px; color:var(--text2);"></span>
+      <button
+        class="btn btn-secondary"
+        onclick="exportHistoryCSV('soil')"
+        style="font-size: 12px; padding: 6px 14px"
+      >
+        ⬇️ Export CSV
+      </button>
+      <span id="soil-count" style="font-size: 12px; color: var(--text2)"></span>
     </div>
 
-    <div class="card" style="padding:0; overflow:hidden;">
-      <div id="soil-loading" style="text-align:center; padding:40px; color:var(--text2);">
-        <div class="spinner" style="margin:0 auto 12px;"></div>Loading…
+    <div class="card" style="padding: 0; overflow: hidden">
+      <div
+        id="soil-loading"
+        style="text-align: center; padding: 40px; color: var(--text2)"
+      >
+        <div class="spinner" style="margin: 0 auto 12px"></div>
+        Loading…
       </div>
-      <div style="overflow-x:auto;">
-        <table class="data-table" id="soil-table" style="display:none;">
+      <div style="overflow-x: auto">
+        <table class="data-table" id="soil-table" style="display: none">
           <thead>
             <tr>
               <th>Timestamp</th>
@@ -612,7 +1536,11 @@
           </thead>
           <tbody id="soil-tbody"></tbody>
         </table>
-        <div id="soil-empty" class="alert alert-info" style="display:none; margin:20px;">
+        <div
+          id="soil-empty"
+          class="alert alert-info"
+          style="display: none; margin: 20px"
+        >
           No soil readings yet — connect your IoT device to start recording.
         </div>
       </div>
@@ -620,139 +1548,274 @@
   </div>
 </div>
 
-
 <!-- =========================================================================
      PANEL 4: System Preferences
      ========================================================================= -->
 <div class="app-panel" id="panel-preferences">
   <div class="page-header">
     <div class="page-title">⚙️ System Preferences</div>
-    <div class="page-sub">Configure thresholds, sensor calibration, and weather settings</div>
+    <div class="page-sub">
+      Configure thresholds, sensor calibration, and weather settings
+    </div>
   </div>
 
-  <div id="pref-error" class="alert alert-critical" style="display:none;">
+  <div id="pref-error" class="alert alert-critical" style="display: none">
     ⚠️ Cannot connect to backend API. Make sure the server is running.
   </div>
 
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+  <div
+    style="
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    "
+  >
     <!-- Weather Config -->
     <div class="card">
       <div class="card-title">🌐 Weather Configuration</div>
       <div class="form-group">
         <label class="form-label">City Name</label>
-        <input class="form-input" id="cfg-city" placeholder="e.g. Nabadwip" value="">
+        <input
+          class="form-input"
+          id="cfg-city"
+          placeholder="e.g. Nabadwip"
+          value=""
+        />
       </div>
-      <div style="font-size:12px; color:var(--text2); margin-bottom:14px;">
-        Weather data is fetched automatically from Open-Meteo (no API key required).<br>
+      <div style="font-size: 12px; color: var(--text2); margin-bottom: 14px">
+        Weather data is fetched automatically from Open-Meteo (no API key
+        required).<br />
         You can also let the web interface auto-detect location via GPS.
       </div>
-      <button class="btn btn-primary" onclick="saveWeather()">💾 Save Weather Config</button>
+      <button class="btn btn-primary" onclick="saveWeather()">
+        💾 Save Weather Config
+      </button>
     </div>
 
     <!-- Sensor Calibration -->
     <div class="card">
       <div class="card-title">🔧 Sensor Calibration</div>
-      <div style="font-size:12px; color:var(--text2); margin-bottom:14px;">
-        Offsets added to raw sensor values to correct hardware drift. Use 0 for no correction.
+      <div style="font-size: 12px; color: var(--text2); margin-bottom: 14px">
+        Offsets added to raw sensor values to correct hardware drift. Use 0 for
+        no correction.
       </div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Soil Moisture Offset (%)</label>
-          <input class="form-input" id="cal-sm" type="number" step="0.1" value="0">
+          <input
+            class="form-input"
+            id="cal-sm"
+            type="number"
+            step="0.1"
+            value="0"
+          />
         </div>
         <div class="form-group">
           <label class="form-label">Temperature Offset (°C)</label>
-          <input class="form-input" id="cal-temp" type="number" step="0.1" value="0">
+          <input
+            class="form-input"
+            id="cal-temp"
+            type="number"
+            step="0.1"
+            value="0"
+          />
         </div>
         <div class="form-group">
           <label class="form-label">Humidity Offset (%)</label>
-          <input class="form-input" id="cal-hum" type="number" step="0.1" value="0">
+          <input
+            class="form-input"
+            id="cal-hum"
+            type="number"
+            step="0.1"
+            value="0"
+          />
         </div>
       </div>
-      <button class="btn btn-primary" onclick="saveCalibration()">🔧 Apply Calibration</button>
+      <button class="btn btn-primary" onclick="saveCalibration()">
+        🔧 Apply Calibration
+      </button>
     </div>
 
     <!-- Alert Thresholds -->
-    <div class="card" style="grid-column:1/-1;">
+    <div class="card" style="grid-column: 1/-1">
       <div class="card-title">⚠️ Alert Thresholds</div>
-      <div style="font-size:12px; color:var(--text2); margin-bottom:18px;">
-        Alerts and insights are triggered when sensor values fall outside these ranges.
+      <div style="font-size: 12px; color: var(--text2); margin-bottom: 18px">
+        Alerts and insights are triggered when sensor values fall outside these
+        ranges.
       </div>
 
-      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px;">
+      <div
+        style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px"
+      >
         <!-- Soil Moisture -->
         <div>
-          <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">💧 Soil Moisture (%)</div>
-          <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
-            <div class="form-group" style="flex:1; margin:0;">
+          <div
+            style="
+              font-size: 13px;
+              font-weight: 600;
+              color: var(--text1);
+              margin-bottom: 12px;
+            "
+          >
+            💧 Soil Moisture (%)
+          </div>
+          <div
+            style="
+              display: flex;
+              gap: 8px;
+              align-items: center;
+              margin-bottom: 8px;
+            "
+          >
+            <div class="form-group" style="flex: 1; margin: 0">
               <label class="form-label">Min</label>
-              <input class="form-input" id="th-sm-min" type="number" value="30">
+              <input
+                class="form-input"
+                id="th-sm-min"
+                type="number"
+                value="30"
+              />
             </div>
-            <div style="color:var(--text3); margin-top:20px;">—</div>
-            <div class="form-group" style="flex:1; margin:0;">
+            <div style="color: var(--text3); margin-top: 20px">—</div>
+            <div class="form-group" style="flex: 1; margin: 0">
               <label class="form-label">Max</label>
-              <input class="form-input" id="th-sm-max" type="number" value="80">
+              <input
+                class="form-input"
+                id="th-sm-max"
+                type="number"
+                value="80"
+              />
             </div>
           </div>
-          <div id="bar-sm-preview" class="threshold-preview" style="height:6px; background:var(--bg3); border-radius:3px;"></div>
+          <div
+            id="bar-sm-preview"
+            class="threshold-preview"
+            style="height: 6px; background: var(--bg3); border-radius: 3px"
+          ></div>
         </div>
 
         <!-- Temperature -->
         <div>
-          <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">🌡️ Temperature (°C)</div>
-          <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
-            <div class="form-group" style="flex:1; margin:0;">
+          <div
+            style="
+              font-size: 13px;
+              font-weight: 600;
+              color: var(--text1);
+              margin-bottom: 12px;
+            "
+          >
+            🌡️ Temperature (°C)
+          </div>
+          <div
+            style="
+              display: flex;
+              gap: 8px;
+              align-items: center;
+              margin-bottom: 8px;
+            "
+          >
+            <div class="form-group" style="flex: 1; margin: 0">
               <label class="form-label">Min</label>
-              <input class="form-input" id="th-temp-min" type="number" value="10">
+              <input
+                class="form-input"
+                id="th-temp-min"
+                type="number"
+                value="10"
+              />
             </div>
-            <div style="color:var(--text3); margin-top:20px;">—</div>
-            <div class="form-group" style="flex:1; margin:0;">
+            <div style="color: var(--text3); margin-top: 20px">—</div>
+            <div class="form-group" style="flex: 1; margin: 0">
               <label class="form-label">Max</label>
-              <input class="form-input" id="th-temp-max" type="number" value="35">
+              <input
+                class="form-input"
+                id="th-temp-max"
+                type="number"
+                value="35"
+              />
             </div>
           </div>
         </div>
 
         <!-- Humidity -->
         <div>
-          <div style="font-size:13px; font-weight:600; color:var(--text1); margin-bottom:12px;">💦 Humidity (%)</div>
-          <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
-            <div class="form-group" style="flex:1; margin:0;">
+          <div
+            style="
+              font-size: 13px;
+              font-weight: 600;
+              color: var(--text1);
+              margin-bottom: 12px;
+            "
+          >
+            💦 Humidity (%)
+          </div>
+          <div
+            style="
+              display: flex;
+              gap: 8px;
+              align-items: center;
+              margin-bottom: 8px;
+            "
+          >
+            <div class="form-group" style="flex: 1; margin: 0">
               <label class="form-label">Min</label>
-              <input class="form-input" id="th-hum-min" type="number" value="40">
+              <input
+                class="form-input"
+                id="th-hum-min"
+                type="number"
+                value="40"
+              />
             </div>
-            <div style="color:var(--text3); margin-top:20px;">—</div>
-            <div class="form-group" style="flex:1; margin:0;">
+            <div style="color: var(--text3); margin-top: 20px">—</div>
+            <div class="form-group" style="flex: 1; margin: 0">
               <label class="form-label">Max</label>
-              <input class="form-input" id="th-hum-max" type="number" value="80">
+              <input
+                class="form-input"
+                id="th-hum-max"
+                type="number"
+                value="80"
+              />
             </div>
           </div>
         </div>
       </div>
 
-      <div style="margin-top:20px;">
-        <button class="btn btn-primary" onclick="saveThresholds()">💾 Save Thresholds</button>
+      <div style="margin-top: 20px">
+        <button class="btn btn-primary" onclick="saveThresholds()">
+          💾 Save Thresholds
+        </button>
       </div>
     </div>
   </div>
 </div>
 
-{% endblock %}
-
-{% block scripts %}
+{% endblock %} {% block scripts %}
 <script src="/static/js/app.js"></script>
 <script>
-// ── Soil Monitor internal tab navigation
-function soilTab(name, btn) {
-  document.querySelectorAll('.soil-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.soil-view').forEach(v => v.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById('sview-' + name).classList.add('active');
+  // ── Soil Monitor internal tab navigation
+  function soilTab(name, btn) {
+    document
+      .querySelectorAll(".soil-tab")
+      .forEach((t) => t.classList.remove("active"));
+    document
+      .querySelectorAll(".soil-view")
+      .forEach((v) => v.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("sview-" + name).classList.add("active");
 
-  // Trigger data fetches dynamically on demand
-  if (name === 'charts')   { state.currentView = 'charts';   fetchHistory(); }
-  if (name === 'weather')  { state.currentView = 'weather';  fetchWeather(); }
-  if (name === 'insights') { state.currentView = 'insights'; fetchInsights(); }
-}
+    // Trigger data fetches dynamically on demand
+    if (name === "charts") {
+      state.currentView = "charts";
+      fetchHistory();
+    }
+    if (name === "weather") {
+      state.currentView = "weather";
+      fetchWeather();
+    }
+    if (name === "insights") {
+      state.currentView = "insights";
+      fetchInsights();
+    }
+  }
 </script>
 {% endblock %}
