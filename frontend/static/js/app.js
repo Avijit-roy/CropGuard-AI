@@ -361,6 +361,59 @@ function getClientGeolocation() {
   }, ()=>{});
 }
 
+async function detectUserLocation(btn) {
+  if (!navigator.geolocation) {
+    showAlert('Not Supported', 'Geolocation is not supported by your browser.', 'danger');
+    return;
+  }
+
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '⌛';
+  btn.disabled = true;
+
+  navigator.geolocation.getCurrentPosition(async (position) => {
+    try {
+      const lat = position.coords.latitude;
+      const lon = position.coords.longitude;
+      
+      clientCoords = { lat, lon };
+
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`
+      );
+
+      if (!response.ok) throw new Error('Geocoding failed');
+      const data = await response.json();
+
+      const addr = data.address || {};
+      const city = addr.city || addr.town || addr.village || addr.suburb || addr.city_district || addr.county;
+
+      if (city) {
+        const input = $('cfg-city');
+        if (input) {
+          input.value = city;
+          showAlert('Location Detected', `Detected: ${city}`, 'success');
+        }
+      } else {
+        showAlert('Location Error', 'Could not determine city name.', 'warning');
+      }
+    } catch (err) {
+      console.error('Reverse geocoding error:', err);
+      showAlert('Location Error', 'Failed to fetch city name.', 'danger');
+    } finally {
+      btn.innerHTML = originalText;
+      btn.disabled = false;
+    }
+  }, (err) => {
+    console.error('Geolocation error:', err);
+    let msg = 'Could not access your location.';
+    if (err.code === 1) msg = 'Location permission denied.';
+    showAlert('Location Error', msg, 'danger');
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  });
+}
+
 // ─── USB Serial ───────────────────────────────────────
 let serialPort=null, serialReader=null, serialBuf='';
 

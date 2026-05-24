@@ -1590,12 +1590,23 @@
       <div class="card-title">🌐 Weather Configuration</div>
       <div class="form-group">
         <label class="form-label">City Name</label>
-        <input
-          class="form-input"
-          id="cfg-city"
-          placeholder="e.g. Nabadwip"
-          value=""
-        />
+        <div style="display: flex; gap: 8px">
+          <input
+            class="form-input"
+            id="cfg-city"
+            placeholder="e.g. Nabadwip"
+            value=""
+            style="flex: 1"
+          />
+          <button
+            class="btn btn-secondary"
+            onclick="detectUserLocation(this)"
+            title="Detect my location"
+            style="padding: 0 12px"
+          >
+            📍
+          </button>
+        </div>
       </div>
       <div style="font-size: 12px; color: var(--text2); margin-bottom: 14px">
         Weather data is fetched automatically from Open-Meteo (no API key
