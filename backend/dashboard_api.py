@@ -57,6 +57,9 @@ DEFAULT_THRESHOLDS = {
 DEFAULT_CALIBRATION = {"soil_moisture": 0, "temperature": 0, "humidity": 0}
 CACHED_GEO = {}
 
+# Standard Device ID for local users
+DEVICE_ID = "cropguard_basic"
+
 # ============================================================
 # USER MODEL
 # ============================================================
@@ -334,7 +337,8 @@ def generate_insights(sensor, weather, thresholds=None):
 @login_required
 def api_sensor():
     # LINKING STEP: Every time an authenticated user visits their dashboard,
-    # we link the "local_usb" device to them automatically.
+    # we link the common device IDs to them automatically.
+    db.set_device_owner("cropguard_basic", current_user.id)
     db.set_device_owner("local_usb", current_user.id)
     return jsonify(get_latest_sensor(current_user.id))
 
@@ -352,6 +356,8 @@ def api_weather():
 @app.route('/api/insights')
 @login_required
 def api_insights():
+    # Also link here to be safe
+    db.set_device_owner("cropguard_basic", current_user.id)
     s  = get_latest_sensor(current_user.id)
     th = get_user_settings(current_user.id)['thresholds']
     return jsonify(generate_insights(s, fetch_weather(request.args.get('lat'), request.args.get('lon')), th))
@@ -363,7 +369,7 @@ def api_sensor_upload():
     sm  = data.get("soil_moisture")
     tmp = data.get("temperature")
     hum = data.get("humidity")
-    device_id = data.get("device_id", "local_usb")
+    device_id = data.get("device_id", DEVICE_ID)
 
     if sm is None or tmp is None or hum is None:
         return jsonify({"status":"error","message":"Missing sensor fields"}), 400
@@ -372,14 +378,12 @@ def api_sensor_upload():
     user_id = None
     if current_user.is_authenticated:
         user_id = current_user.id
-        # Claim device ownership if authenticated
         db.set_device_owner(device_id, user_id)
     else:
-        # Check database for registered device owner
         user_id = db.get_device_owner(device_id)
         
     if not user_id:
-        # Emergency fallback to user_id 4 if no owner found yet
+        # Emergency fallback to user_id 4
         user_id = 4
         
     th = get_user_settings(user_id)['thresholds']
@@ -701,7 +705,8 @@ def auth_supabase_login():
         login_user(user, remember=True)
         log.info(f"Supabase Login: Successfully logged in user {email} (ID: {user.id})")
         
-        # AUTOMATIC LINKING: When a user logs in, link the local device to them immediately
+        # AUTOMATIC LINKING: Claim ownership of the local device on login
+        db.set_device_owner("cropguard_basic", user.id)
         db.set_device_owner("local_usb", user.id)
         
         return jsonify({"status": "success", "user": {
