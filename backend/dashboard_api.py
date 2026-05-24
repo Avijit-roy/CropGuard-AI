@@ -128,19 +128,34 @@ def fetch_weather(lat=None, lon=None):
     """Robust weather fetching using Open-Meteo and wttr.in fallback."""
     lat, lon = lat or 23.4, lon or 88.3
     try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,surface_pressure&hourly=temperature_2m,precipitation_probability,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto"
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,surface_pressure,wind_speed_10m,cloud_cover,uv_index&hourly=temperature_2m,precipitation_probability,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto"
         w = requests.get(url, timeout=5).json()
         curr = w.get('current', {})
         hourly = [{"time": w['hourly']['time'][i], "temp": w['hourly']['temperature_2m'][i], "precip_prob": w['hourly']['precipitation_probability'][i], "weather_code": w['hourly']['weather_code'][i]} for i in range(min(24, len(w.get('hourly', {}).get('time', []))))]
-        daily = [{"date": w['daily']['time'][i], "weather_code": w['daily']['weather_code'][i], "temp_max": w['daily']['temperature_2m_max'][i], "temp_min": w['daily']['temperature_2m_min'][i]} for i in range(min(7, len(w.get('daily', {}).get('time', []))))]
+        daily = [{"date": w['daily']['time'][i], "weather_code": w['daily']['weather_code'][i], "temp_max": w['daily']['temperature_2m_max'][i], "temp_min": w['daily']['temperature_2m_min'][i], "sunrise": w['daily']['sunrise'][i], "sunset": w['daily']['sunset'][i]} for i in range(min(7, len(w.get('daily', {}).get('time', []))))]
+        
         return {
             "city": WEATHER_CITY,
-            "current": {"temp": curr.get("temperature_2m", 25), "humidity": curr.get("relative_humidity_2m", 60), "rain": curr.get("precipitation", 0), "weather_code": curr.get("weather_code", 0), "pressure": curr.get("surface_pressure", 1013)},
-            "hourly": hourly, "daily": daily, "weather_code": curr.get("weather_code", 0), "fetched_at": datetime.now().isoformat()
+            "current": {
+                "temp": curr.get("temperature_2m", 25),
+                "humidity": curr.get("relative_humidity_2m", 60),
+                "feels_like": curr.get("apparent_temperature", 25),
+                "wind_speed": curr.get("wind_speed_10m", 0),
+                "cloud_cover": curr.get("cloud_cover", 0),
+                "uv_index": curr.get("uv_index", 0),
+                "rain": curr.get("precipitation", 0),
+                "weather_code": curr.get("weather_code", 0),
+                "pressure": curr.get("surface_pressure", 1013),
+                "aqi": 35 
+            },
+            "hourly": hourly,
+            "daily": daily,
+            "weather_code": curr.get("weather_code", 0),
+            "fetched_at": datetime.now().isoformat()
         }
     except Exception as e:
         log.warning(f"Weather: Source 1 failed: {e}")
-        return {"city": WEATHER_CITY, "current": {"temp": 28, "humidity": 65, "rain": 0, "pressure": 1012, "weather_code": 1}, "hourly": [], "daily": [], "mock": True, "fetched_at": datetime.now().isoformat()}
+        return {"city": WEATHER_CITY, "current": {"temp": 28, "humidity": 65, "rain": 0, "pressure": 1012, "weather_code": 1, "feels_like": 30, "wind_speed": 5, "cloud_cover": 20, "uv_index": 5, "aqi": 42}, "hourly": [], "daily": [], "mock": True, "fetched_at": datetime.now().isoformat()}
 
 def generate_insights(sensor, weather, thresholds=None):
     if thresholds is None: thresholds = DEFAULT_THRESHOLDS

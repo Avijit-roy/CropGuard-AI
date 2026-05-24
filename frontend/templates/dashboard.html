@@ -77,9 +77,11 @@
 .alert-close { margin-left:auto; cursor:pointer; color:var(--text3); font-size:18px; line-height:1; }
 
 /* ── Weather ── */
-.w-row { display:grid; grid-template-columns:1fr 300px; gap:20px; }
-@media (max-width:860px) { .w-row { grid-template-columns:1fr; } }
-.w-card { background:var(--bg1); border:1px solid var(--border1); border-radius:12px; padding:20px; margin-bottom:16px; }
+.w-row { display:flex; gap:20px; flex-wrap:wrap; }
+.w-col-main { flex:2; min-width:340px; display:flex; flex-direction:column; gap:16px; }
+.w-col-side { flex:1; min-width:280px; display:flex; flex-direction:column; gap:16px; }
+@media (max-width:860px) { .w-col-main, .w-col-side { flex:1 1 100%; min-width:0; } }
+.w-card { background:var(--bg1); border:1px solid var(--border1); border-radius:12px; padding:20px; height:100%; }
 .w-card-title { font-size:13px; font-weight:600; color:var(--text2); margin-bottom:14px; text-transform:uppercase; letter-spacing:.05em; }
 .w-curr-top   { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; }
 .w-curr-temp  { font-size:3rem; font-weight:800; color:var(--text1); }
@@ -257,7 +259,7 @@
     </div>
     <div id="severe-alert-container"></div>
     <div class="w-row">
-      <div>
+      <div class="w-col-main">
         <div class="w-card">
           <div class="w-card-title">📍 Current Weather <span id="w-city" style="color:var(--text1); font-weight:700; margin-left:auto;">—</span></div>
           <div class="w-curr-top">
@@ -284,7 +286,7 @@
           <div class="w-hourly-scroll" id="hourly-scroll"></div>
         </div>
       </div>
-      <div>
+      <div class="w-col-side">
         <div class="w-card">
           <div class="w-card-title">📅 7-Day Forecast</div>
           <div class="w-daily-list" id="daily-list"></div>
