@@ -1,31 +1,66 @@
-# Virtual environment
+# ─── Virtual Environment ───────────────────────────────────────────────────────
 .venv/
 venv/
 env/
 
-# Python bytecode
+# ─── Python Bytecode ───────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 
-# Logs (auto-rotated, never commit)
+# ─── Logs (runtime, never commit) ──────────────────────────────────────────────
 *.log
 *.log.*
 
-# Database (runtime data, not source)
+# ─── Databases (runtime data, not source) ──────────────────────────────────────
 *.db
+*.sqlite
+*.sqlite3
 
-# IDE
+# ─── ML Model Files (too large for git — use Git LFS or cloud storage) ─────────
+*.keras
+*.tflite
+*.joblib
+*.h5
+*.pt
+*.pth
+*.onnx
+
+# ─── Environment Variables ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── IDE & Editor Files ────────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
 *.swo
+*.swa
 
-# OS files
+# ─── OS Artifacts ──────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Model files (too large for git — store separately)
-# *.keras
-# *.joblib
-.env
+# ─── Test & Debug Scripts (not production code) ────────────────────────────────
+test_predict.py
+test_predict_2.py
+test_tflite.py
+test_*.py
+
+# ─── One-Time Dev Patch Scripts (used during development, not production) ───────
+update_css.py
+update_js.py
+update_js_2.py
+update_js_realtime.py
+update_main_css.py
+restore_wmo.py
+
+# ─── One-Time SQL Fix Scripts (applied, no longer needed) ──────────────────────
+fix_rls.sql
+llm_fix.sql
+
+# ─── AI Agent Tooling (local dev tooling, not production) ──────────────────────
+skills-lock.json

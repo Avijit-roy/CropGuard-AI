@@ -18,6 +18,12 @@
 
 ---
 
+## 🔗 Live Application
+Access the production dashboard here:  
+**🚀 [https://cropguard-ai-1-ys7p.onrender.com](https://cropguard-ai-1-ys7p.onrender.com)**
+
+---
+
 ## 📖 Overview
 
 **CropGuard AI** is a full-stack agricultural intelligence platform that combines **deep learning-based plant disease detection** with **real-time IoT soil monitoring** and **external weather data** to deliver actionable farming insights.
@@ -41,88 +47,74 @@ Recently upgraded from a Streamlit prototype to a **fully unified, production-re
 
 ---
 
-## 🏗️ System Architecture
+## 🛠️ How to Use
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                        CropGuard AI System                      │
-├─────────────┬──────────────────┬────────────────────────────────┤
-│  HARDWARE   │    BACKEND       │         FRONTEND               │
-│             │                  │                                │
-│  Arduino    │  mqtt_publisher  │  Flask Web Dashboard (HTML/JS) │
-│  Uno R3     │  ──► Serial ──►  │  ┌──────────────────────────┐  │
-│  ┌────────┐ │  ──► MQTT ───►   │  │ 🌿 Live Soil Monitor     │  │
-│  │ DHT11  │ │                  │  │ 🔬 Disease Detection     │  │
-│  │ HL-69  │ │  mqtt_subscriber │  │ 📄 History & Reports     │  │
-│  │ LED    │ │  ◄── MQTT ◄──    │  │ ⚙️ Preferences           │  │
-│  │ Buzzer │ │  ──► SQLite ──►  │  └──────────────────────────┘  │
-│  └────────┘ │                  │                                │
-│             │  dashboard_api   │  Client-Side Technologies      │
-│             │  (Flask REST)    │  ┌──────────────────────────┐  │
-│             │  ◄── HTTP/WS ◄── │  │ 📈 Chart.js (Graphs)     │  │
-│             │                  │  │ ✂️ Cropper.js (Images)   │  │
-│             │  fusion_engine   │  │ 🔌 Web Serial API        │  │
-│             │  (Rule-based AI) │  │ 📍 Geolocation API       │  │
-│             │                  │  └──────────────────────────┘  │
-└─────────────┴──────────────────┴────────────────────────────────┘
-```
+### 1. Connecting Your Hardware
+*   **Plug and Play:** Connect your Arduino Uno (with the flashed firmware) to your system via USB.
+*   **Manual Connection:** If the dashboard does not automatically display sensor readings, use the **"🔌 Connect USB Sensor"** button located in the bottom-right corner of the interface. This uses the Web Serial API to bridge your hardware directly to the browser.
+*   **Stabilization Period:** After connecting, reconnecting, or refreshing, please **wait for approximately 1 minute** for the system to stabilize, establish a consistent data stream, and update the "Online/Offline" status indicators.
 
-### Data Flow
+### 2. Disease Diagnosis
+*   Navigate to the **Microscope** icon (Disease Detection) tab.
+*   Upload or drag-and-drop a photo of a plant leaf.
+*   Use the interactive cropper to focus on the affected area and click **"Run AI Diagnosis"**.
+*   View the combined report which includes the AI's confidence score and the **Fusion Engine**'s environmental risk analysis.
 
-```mermaid
-graph LR
-    A[Arduino Sensors] -->|Serial USB| B[mqtt_publisher.py]
-    B -->|MQTT Publish| C[HiveMQ Broker]
-    C -->|MQTT Subscribe| D[mqtt_subscriber.py]
-    D -->|INSERT| E[(SQLite DB)]
-    D -->|Thread| F[dashboard_api.py Flask App]
-    F -->|REST API| G[Frontend UI]
-    I[Open-Meteo API] -->|HTTP| F
-    J[Leaf Image Upload] -->|Cropper.js| K[Flask Predict API]
-    K -->|MobileNetV2| L[Fusion Engine]
-    E -->|7-Day Averages| L
-    I -->|Weather Data| L
-    L -->|Risk Score + Advice| G
-```
+### 3. Monitoring & Reports
+*   Check the **Live Soil Monitor** for real-time graphs of temperature, humidity, and soil moisture.
+*   The system **automatically stores your data for up to 7 days**. Older data is purged automatically to maintain system performance.
+*   Export your findings using the **"Export CSV"** or **"Download PDF Report"** buttons in the History tab.
+
+---
+
+## 🏗️ System Architecture & Pipeline
+
+### 1. Data Acquisition (Hardware)
+The **Arduino Uno R3** acts as the edge node, polling data from DHT11 (Air) and HL-69 (Soil) sensors every 2 seconds. This data is packaged as a JSON string and broadcasted over the Serial USB interface.
+
+### 2. Data Ingestion (Dual Pipeline)
+*   **Backend Reader:** A local Python script (`serial_reader.py`) can run in the background, auto-detecting COM/tty ports and pushing data to the cloud API.
+*   **Web Serial Bridge:** For a seamless experience without local setup, the frontend (`app.js`) uses the **Web Serial API** to read the USB port directly from the browser and sync it to the database.
+
+### 3. Processing & Storage
+The **Flask Backend** serves as the central orchestrator:
+*   **SQLite Database:** Stores all historical readings, disease predictions, and user preferences.
+*   **Retention Worker:** A background thread monitors the database and purges records older than **168 hours (7 days)** to ensure high performance and low storage overhead.
+
+### 4. Intelligence (Fusion Engine)
+The core logic resides in `fusion_engine.py`. It evaluates the **Cumulative Environmental Stress**:
+*   **Disease Model:** MobileNetV2 (TensorFlow) classifies the leaf pathogen.
+*   **Soil Context:** Fetches 24-hour averages of soil moisture and humidity to check if conditions favor fungal growth.
+*   **Weather Context:** Integrates live precipitation and temperature forecasts from Open-Meteo.
+*   **Outcome:** Generates a unified **Risk Score (0-100)** and a prioritized action list.
 
 ---
 
 ## 📁 Project Structure
 
 ```text
-plant_disease_iot_v3/
+CropGuard-AI/
 │
 ├── run_all.py                      # 🚀 Master launcher — starts services
 ├── requirements.txt                # Python dependencies
-├── .env                            # Environment variables
-├── .gitignore                      # Git exclusions
-│
-├── plant_disease_model_new.keras   # 🧠 Trained MobileNetV2 model
-├── label_encoder_new.joblib        # 🏷️ Label encoder for disease classes
-│
 ├── backend/
-│   ├── __init__.py
-│   ├── mqtt_subscriber.py          # MQTT listener + DB writer + Flask launcher
-│   ├── dashboard_api.py            # Primary Flask App & REST endpoints
-│   └── fusion_engine.py            # Disease + Soil + Weather logic
+│   ├── server.py                   # Central server (DB, Retention, API Launcher)
+│   ├── dashboard_api.py            # Flask REST Endpoints & Routing
+│   ├── fusion_engine.py            # AI + Environmental logic
+│   ├── database.py                 # SQLite abstractions
+│   └── serial_reader.py            # USB-to-Cloud bridge script
 │
 ├── frontend/
 │   ├── static/
-│   │   ├── css/dashboard.css       # Unified dark-themed design system
-│   │   └── js/app.js               # Frontend logic (charts, API fetching, USB Serial)
-│   └── templates/
-│       ├── base.html               # Master layout with sidebar
-│       ├── soil.html               # Live telemetry & charts
-│       ├── disease.html            # Image upload & AI prediction
-│       ├── history.html            # Data tables & CSV export
-│       └── preferences.html        # Settings configuration
+│   │   ├── css/                    # Glassmorphism design system
+│   │   └── js/app.js               # SPA logic, Charts, Web Serial API
+│   └── templates/                  # Jinja2 HTML templates
 │
 ├── iot/
-│   ├── arduino_sensor.ino          # Arduino firmware (DHT11 + HL-69)
-│   └── mqtt_publisher.py           # Serial reader → MQTT publisher
+│   └── arduino_sensor.ino          # Arduino C++ firmware
 │
 ├── soil_data.db                    # 🗃️ SQLite database (auto-created)
-└── *.log                           # Auto-rotating log files
+└── plant_disease_model_new.keras   # 🧠 Trained AI Model
 ```
 
 ---
